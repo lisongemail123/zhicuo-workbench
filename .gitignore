@@ -1,0 +1,10 @@
+node_modules/
+coverage/
+work/
+backups/
+.openai/
+.env
+.env.*
+!.env.example
+*.tar.gz
+.DS_Store
