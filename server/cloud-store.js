@@ -4,17 +4,18 @@ import { attachAIKnowledge } from '../dist/ai.js';
 export const MAX_PHOTO_BYTES=12*1024*1024;
 export const CLOUD_KINDS=['records','knowledge','logs'];
 export const cloudReady=env=>!!(env?.DB&&env?.BUCKET);
+const scope=env=>{if(!env.WORKSPACE_ID)throw new Error('缺少已授权的学习空间');return env.WORKSPACE_ID;};
 export const validId=id=>typeof id==='string'&&id.length>0&&id.length<=100&&!/[\u0000-\u001f]/.test(id);
 export const fingerprint=value=>JSON.stringify(value);
 export async function digest(bytes){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(b=>b.toString(16).padStart(2,'0')).join('');}
 export async function readBounded(stream,maxBytes){const reader=stream?.getReader();if(!reader)return new Uint8Array();let count=0;const chunks=[];try{for(;;){const r=await reader.read();if(r.done)break;count+=r.value.length;if(count>maxBytes){await reader.cancel();throw new Error('内容过大，请使用 12 MB 以内的照片');}chunks.push(r.value);}}finally{reader.releaseLock();}const bytes=new Uint8Array(count);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return bytes;}
-export async function getEntity(env,kind,id){const row=await env.DB.prepare('SELECT kind,id,payload,revision,deleted,updated_at FROM cloud_entities WHERE kind=? AND id=?').bind(kind,id).first();return row?{kind:row.kind,id:row.id,payload:JSON.parse(row.payload),revision:row.revision,deleted:!!row.deleted,updatedAt:row.updated_at}:null;}
-export async function listEntities(env,kind,offset=0,limit=100){const rows=await env.DB.prepare('SELECT kind,id,payload,revision,deleted,updated_at FROM cloud_entities WHERE kind=? ORDER BY id LIMIT ? OFFSET ?').bind(kind,limit,offset).all();return rows.results.map(row=>({kind:row.kind,id:row.id,payload:JSON.parse(row.payload),revision:row.revision,deleted:!!row.deleted,updatedAt:row.updated_at}));}
+export async function getEntity(env,kind,id){const row=await env.DB.prepare('SELECT kind,id,payload,revision,deleted,updated_at FROM workspace_entities WHERE workspace_id=? AND kind=? AND id=?').bind(scope(env),kind,id).first();return row?{kind:row.kind,id:row.id,payload:JSON.parse(row.payload),revision:row.revision,deleted:!!row.deleted,updatedAt:row.updated_at}:null;}
+export async function listEntities(env,kind,offset=0,limit=100){const rows=await env.DB.prepare('SELECT kind,id,payload,revision,deleted,updated_at FROM workspace_entities WHERE workspace_id=? AND kind=? ORDER BY id LIMIT ? OFFSET ?').bind(scope(env),kind,limit,offset).all();return rows.results.map(row=>({kind:row.kind,id:row.id,payload:JSON.parse(row.payload),revision:row.revision,deleted:!!row.deleted,updatedAt:row.updated_at}));}
 export async function allEntities(env,kind){const result=[];for(let offset=0;;offset+=100){const page=await listEntities(env,kind,offset,100);result.push(...page);if(page.length<100)break;}return result;}
 export async function writeEntity(env,{kind,id,payload={},baseRevision=0,deleted=false}){
  if(!CLOUD_KINDS.includes(kind)||!validId(id)||!Number.isInteger(baseRevision)||baseRevision<0)throw new Error('同步条目无效');
  const at=new Date().toISOString();
- const result=await env.DB.prepare('INSERT INTO cloud_entities (kind,id,payload,revision,deleted,updated_at) VALUES (?,?,?,1,?,?) ON CONFLICT(kind,id) DO UPDATE SET payload=excluded.payload,revision=cloud_entities.revision+1,deleted=excluded.deleted,updated_at=excluded.updated_at WHERE cloud_entities.revision=?').bind(kind,id,JSON.stringify(payload),deleted?1:0,at,baseRevision).run();
+ const result=await env.DB.prepare('INSERT INTO workspace_entities (workspace_id,kind,id,payload,revision,deleted,updated_at) VALUES (?,?,?,?,1,?,?) ON CONFLICT(workspace_id,kind,id) DO UPDATE SET payload=excluded.payload,revision=workspace_entities.revision+1,deleted=excluded.deleted,updated_at=excluded.updated_at WHERE workspace_entities.revision=?').bind(scope(env),kind,id,JSON.stringify(payload),deleted?1:0,at,baseRevision).run();
  const entity=await getEntity(env,kind,id);
  return {accepted:result.meta.changes===1,entity};
 }
@@ -27,10 +28,10 @@ function imageMime(bytes){
 }
 export async function storePhoto(env,bytes,fileName='原题照片'){
  if(!bytes.length||bytes.length>MAX_PHOTO_BYTES)throw new Error('照片大小无效，需在 12 MB 以内');
- const mime=imageMime(bytes),id='photo-'+await digest(bytes),key='photos/'+id;
- if(!await env.DB.prepare('SELECT id FROM cloud_photos WHERE id=?').bind(id).first()){
+ const mime=imageMime(bytes),id='photo-'+await digest(bytes),key='workspaces/'+scope(env)+'/photos/'+id;
+ if(!await env.DB.prepare('SELECT id FROM workspace_photos WHERE workspace_id=? AND id=?').bind(scope(env),id).first()){
   await env.BUCKET.put(key,bytes,{httpMetadata:{contentType:mime}});
-  await env.DB.prepare('INSERT OR IGNORE INTO cloud_photos (id,storage_key,mime_type,byte_length,file_name,created_at) VALUES (?,?,?,?,?,?)').bind(id,key,mime,bytes.length,String(fileName).slice(0,160),new Date().toISOString()).run();
+  await env.DB.prepare('INSERT OR IGNORE INTO workspace_photos (workspace_id,id,storage_key,mime_type,byte_length,file_name,created_at) VALUES (?,?,?,?,?,?,?)').bind(scope(env),id,key,mime,bytes.length,String(fileName).slice(0,160),new Date().toISOString()).run();
  }
  return {id,url:'/api/files/'+id,mimeType:mime,bytes:bytes.length};
 }
@@ -41,9 +42,9 @@ export async function saveInlinePhoto(env,photo){
 }
 export async function removeUnusedPhoto(env,photoPath){
  const match=String(photoPath||'').match(/^\/api\/files\/(photo-[a-f0-9]{64})$/);if(!match)return;
- const referenced=await env.DB.prepare("SELECT id FROM cloud_entities WHERE kind='records' AND deleted=0 AND json_extract(payload,'$.photo')=? LIMIT 1").bind(photoPath).first();if(referenced)return;
- const file=await env.DB.prepare('SELECT storage_key FROM cloud_photos WHERE id=?').bind(match[1]).first();if(!file)return;
- await env.BUCKET.delete(file.storage_key);await env.DB.prepare('DELETE FROM cloud_photos WHERE id=?').bind(match[1]).run();
+ const referenced=await env.DB.prepare("SELECT id FROM workspace_entities WHERE workspace_id=? AND kind='records' AND deleted=0 AND json_extract(payload,'$.photo')=? LIMIT 1").bind(scope(env),photoPath).first();if(referenced)return;
+ const file=await env.DB.prepare('SELECT storage_key FROM workspace_photos WHERE workspace_id=? AND id=?').bind(scope(env),match[1]).first();if(!file)return;
+ await env.BUCKET.delete(file.storage_key);await env.DB.prepare('DELETE FROM workspace_photos WHERE workspace_id=? AND id=?').bind(scope(env),match[1]).run();
 }
 function allowedDownload(value){
  let url;try{url=new URL(value);}catch{throw new Error('ChatGPT 未提供可下载的原图链接，请重新发送照片');}

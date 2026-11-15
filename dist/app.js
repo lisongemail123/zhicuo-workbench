@@ -1,3 +1,6 @@
+import { createAccountUI } from './accounts.js';
+import { scopedKey,photoURL } from './account-context.js';
+import { AI_CONFIG_KEY,AI_SESSION_KEY,normalizeAIConfig } from './ai.js';
 import { createCloudSync } from './cloud.js';
 import { createAIWorkspace } from './ai-ui.js';
 import { VERSION, STORAGE_KEY, SUBJECTS, REASONS, INTERVALS, uid, today, addDays, dateLabel, activeRecords, dueRecords, knowledgeStats, applyReview, learningPath, suggestKnowledge, selectPaper, createInitialState, validateState } from './model.js';
@@ -37,23 +40,30 @@ const subjectBadge = s => `<span class="subject-icon ${subjectClass(s)}">${({数
 const options = (values,value) => values.map(v=>`<option value="${esc(v)}" ${v===value?'selected':''}>${esc(v)}</option>`).join('');
 const empty = (title,detail,action='new',label='录入第一道错题') => `<div class="empty">${icon('book')}<h3>${esc(title)}</h3><p>${esc(detail)}</p>${action?`<button class="btn primary" data-action="${action}">${esc(label)}</button>`:''}</div>`;
 let cloud=null;
-let initialWarning='';
-let state;
-try { const raw=localStorage.getItem(STORAGE_KEY); state=raw?validateState(JSON.parse(raw)):createInitialState(); }
-catch { state=createInitialState(false); initialWarning='本地数据暂时无法读取。原数据未覆盖，请先导出原始数据或导入备份。'; }
-let view=['dashboard','notebook','intake','learning','knowledge','reports','print','ai','cloud','trash'].includes(location.hash.slice(1))?location.hash.slice(1):'dashboard';
+let initialWarning='',storageKey=STORAGE_KEY,initialized=false;
+let state=createInitialState(false);
+let view=['dashboard','notebook','intake','learning','knowledge','reports','print','ai','cloud','trash','account','admin'].includes(location.hash.slice(1).split('?')[0])?location.hash.slice(1).split('?')[0]:'dashboard';
 let filters={subject:'全部',status:'全部',reason:'全部',q:'',sort:'due',star:false};
 let selected=new Set(), learningMode='questions', reportDays=7, knowledgeSubject='全部';
 let session=null, draft=null, draftStep=1, confirmHandler=null, editKnowledgeId=null, importCandidate=null;
 let paper={strategy:'due',count:6,subject:'全部',title:'我的错题巩固练习',space:'normal',answers:true,ids:[]};
 let paperVersion=0, isMobileMenu=false, currentPaperIds=[];
-const ai=createAIWorkspace({getState:()=>state,getDraft:()=>draft,saveState:next=>{state=validateState(next);return save();},render,modal,closeModal,toast,navigate:next=>go(next),icon,esc,openRecord,confirmDialog});
+let ai=null;
+async function initializeAccount(context){
+ storageKey=scopedKey(STORAGE_KEY,true);initialWarning='';
+ try{let raw=localStorage.getItem(storageKey);const legacy=!raw&&context.legacyImportAllowed&&context.workspace.personal&&!localStorage.getItem('zhicuo.legacy.claimed');if(legacy)raw=localStorage.getItem(STORAGE_KEY);state=raw?validateState(JSON.parse(raw)):createInitialState(false);if(!raw)state.prefs.name=context.user.displayName;localStorage.setItem(storageKey,JSON.stringify(state));if(legacy&&raw)localStorage.setItem('zhicuo.legacy.claimed',context.user.id);}catch{state=createInitialState(false);initialWarning='本机缓存暂时无法读取，云端连接后将重新载入。';}
+ try{if(context.legacyImportAllowed&&!localStorage.getItem('zhicuo.ai.legacy.claimed')){const configKey=scopedKey(AI_CONFIG_KEY),secretKey=scopedKey(AI_SESSION_KEY),oldConfig=localStorage.getItem(AI_CONFIG_KEY),oldKeys=sessionStorage.getItem(AI_SESSION_KEY);if(oldConfig&&!localStorage.getItem(configKey))localStorage.setItem(configKey,JSON.stringify(normalizeAIConfig(JSON.parse(oldConfig))));if(oldKeys&&!sessionStorage.getItem(secretKey)){sessionStorage.setItem(secretKey,oldKeys);sessionStorage.removeItem(AI_SESSION_KEY);}localStorage.setItem('zhicuo.ai.legacy.claimed',context.user.id);}}catch{}
+ ai=createAIWorkspace({getState:()=>state,getDraft:()=>draft,saveState:next=>{state=validateState(next);return save();},render,modal,closeModal,toast,navigate:next=>go(next),icon,esc,openRecord,confirmDialog});
+ cloud=createCloudSync({getState:()=>state,applyState:next=>{state=next;try{localStorage.setItem(storageKey,JSON.stringify(state));}catch{toast('本机缓存空间不足，请等待云端同步完成或导出备份。','error');}},render,toast,esc,icon,openRecord});
+ initialized=true;cloud.start();if(initialWarning)toast(initialWarning,'error');
+}
+
 
 function toast(message,kind='success') {
  const el=document.createElement('div');el.className=`toast ${kind}`;el.textContent=message;$('#toasts').append(el);setTimeout(()=>el.remove(),4200);
 }
 function save() {
- try { localStorage.setItem(STORAGE_KEY,JSON.stringify(state));cloud?.queue();return true; }
+ try { localStorage.setItem(storageKey,JSON.stringify(state));cloud?.queue();return true; }
  catch {cloud?.queue();toast('浏览器存储空间不足或不可用。请等待云端同步完成，或导出备份。','error');return false;}
 }
 function commit(fn,message) { fn(); const saved=save();render(); if(message&&saved)toast(message); }
@@ -77,24 +87,28 @@ function confirmDialog(title,description,handler,label='确认',danger=false) {
 }
 const todayLogs=()=>state.logs.filter(l=>l.date===today());
 const active=()=>activeRecords(state);
-const navItems=[['dashboard','home','工作台'],['notebook','layers','错题档案'],['learning','learn','学习中心'],['knowledge','map','知识体系'],['reports','chart','学习报告'],['print','print','组卷打印'],['ai','spark','模型与 OCR'],['cloud','upload','手机归档与同步']];
+const navItems=[['dashboard','home','工作台'],['notebook','layers','错题档案'],['learning','learn','学习中心'],['knowledge','map','知识体系'],['reports','chart','学习报告'],['print','print','组卷打印'],['ai','spark','模型与 OCR'],['cloud','upload','手机归档与同步'],['account','shield','账号与共享空间']];
 function render() {
+ if(!account.isReady()){$('#app').innerHTML='<div class="account-loader">正在连接知错账号…</div>';return;}
+ if(!account.isAuthenticated()){$('#app').innerHTML=account.authPage();return;}
+ if(!initialized){$('#app').innerHTML='<div class="account-loader">正在加载学习空间…</div>';return;}
+ const links=account.isAdmin()?[...navItems,['admin','settings','服务端管理后台']]:navItems;
  const due=dueRecords(state).length, total=active().length;
  const count=todayLogs().length, goal=state.prefs.dailyGoal;
  $('#app').innerHTML=`<div class="workspace ${isMobileMenu?'menu-open':''}"><div class="nav-scrim" data-action="menu"></div><aside class="sidebar">
  <button class="brand" data-nav="dashboard"><span class="brand-mark">${icon('book')}</span><span><strong>知错<span class="brand-dot">.</span></strong><small>让学习，每一步有迹可循</small></span></button>
- <div class="space-label">个人学习工作台 <span>PERSONAL</span></div>
- <nav aria-label="主导航">${navItems.map(([id,ic,label])=>`<button data-nav="${id}" class="nav-item ${view===id?'active':''}">${icon(ic)}<span>${label}</span>${id==='learning'&&due?`<b class="nav-count">${due}</b>`:id==='notebook'?`<small>${total}</small>`:''}</button>`).join('')}</nav>
+ <div class="space-label">${account.workspace.personal?'个人学习工作台':'共享学习空间'} <span>${account.workspace.personal?'PERSONAL':'SHARED'}</span></div><div class="space-switch"><label for="active-space">当前学习空间</label><select id="active-space">${accountSpacesOptions()}</select></div>
+ <nav aria-label="主导航">${links.map(([id,ic,label])=>`<button data-nav="${id}" class="nav-item ${view===id?'active':''}">${icon(ic)}<span>${label}</span>${id==='learning'&&due?`<b class="nav-count">${due}</b>`:id==='notebook'?`<small>${total}</small>`:''}</button>`).join('')}</nav>
  <div class="sidebar-section"><span>我的学科</span><button class="icon-btn" data-action="new" aria-label="新增错题">${icon('plus')}</button></div>
  <div class="subject-nav">${SUBJECTS.filter(s=>s!=='其他'||active().some(r=>r.subject===s)).map(s=>`<button data-subject="${s}" class="${view==='notebook'&&filters.subject===s?'chosen':''}"><i class="subject-dot ${subjectClass(s)}"></i><span>${s}</span><small>${active().filter(r=>r.subject===s).length}</small></button>`).join('')}</div>
  <div class="sidebar-bottom"><div class="daily-card"><div>${icon('leaf')}<span>每天一点，稳稳向前</span></div><p>今日已学习 <strong>${count}</strong><span> / ${goal} 题</span></p><div class="progress-track"><i style="width:${Math.min(100,count/goal*100)}%"></i></div><small>${count>=goal?'今日目标达成，继续保持。':`再学习 ${goal-count} 题，完成今日小目标`}</small></div>
- <button class="profile" data-action="settings"><span class="avatar">知</span><span><strong>${esc(state.prefs.name)}</strong><small><i class="green-dot"></i>${cloud?.isConfigured()?'本机缓存 · 云端同步':'数据暂存当前浏览器'}</small></span>${icon('settings')}</button></div></aside>
- <div class="main-shell"><header class="topbar"><div class="breadcrumb"><button class="icon-btn mobile-menu" data-action="menu" aria-label="打开导航">${icon('menu')}</button><span>学习空间</span>${icon('chevron')}<strong>${navItems.find(i=>i[0]===view)?.[2]||(view==='intake'?'录入错题':'回收站')}</strong></div><div class="topbar-actions"><button class="local-status" data-nav="cloud"><i class="green-dot"></i><span data-cloud-status>${cloud?.label()||'本机保存'}</span></button><button class="icon-btn" data-action="search" aria-label="搜索错题">${icon('search')}</button><button class="icon-btn" data-action="help" aria-label="使用与设计说明">${icon('help')}</button><span class="header-avatar">知</span></div></header><main id="main" tabindex="-1"></main><footer class="site-footer"><span>知错 · 把错题留下，把知识带走。</span><button data-action="help">使用与设计说明 ${icon('arrow')}</button></footer></div></div>`;
+ <button class="profile" data-nav="account"><span class="avatar">知</span><span><strong>${esc(account.user.displayName)}</strong><small><i class="green-dot"></i>${cloud?.isConfigured()?'本机缓存 · 云端同步':'数据暂存当前浏览器'}</small></span>${icon('settings')}</button></div></aside>
+ <div class="main-shell"><header class="topbar"><div class="breadcrumb"><button class="icon-btn mobile-menu" data-action="menu" aria-label="打开导航">${icon('menu')}</button><span>学习空间</span>${icon('chevron')}<strong>${links.find(i=>i[0]===view)?.[2]||(view==='intake'?'录入错题':'回收站')}</strong></div><div class="topbar-actions"><button class="local-status" data-nav="cloud"><i class="green-dot"></i><span data-cloud-status>${cloud?.label()||'本机保存'}</span></button><button class="icon-btn" data-action="search" aria-label="搜索错题">${icon('search')}</button><button class="icon-btn" data-action="help" aria-label="使用与设计说明">${icon('help')}</button><button class="icon-btn" data-action="settings" aria-label="学习偏好">${icon('settings')}</button><button class="header-avatar" data-nav="account" aria-label="账号与共享">知</button></div></header><main id="main" tabindex="-1"></main><footer class="site-footer"><span>知错 · 把错题留下，把知识带走。</span><button data-action="help">使用与设计说明 ${icon('arrow')}</button></footer></div></div>`;
  renderMain();
 }
 function renderMain() {
- const pages={dashboard:dashboard,notebook:notebook,intake:intake,learning:learning,knowledge:knowledgePage,reports:reports,print:printPage,ai:()=>ai.page(),cloud:()=>cloud.page(),trash:trashPage};
- $('#main').innerHTML=pages[view]();
+ const pages={dashboard:dashboard,notebook:notebook,intake:intake,learning:learning,knowledge:knowledgePage,reports:reports,print:printPage,ai:()=>ai.page(),cloud:()=>cloud.page(),account:()=>account.page(),admin:()=>account.adminPage(),trash:trashPage};
+ $('#main').innerHTML=(account.isReadonly()&&!['account','admin'].includes(view)?'<div class="readonly-banner">你是此共享空间的只读成员，可以查看错题、解析和报告。编辑或记录复习结果需由拥有者调整权限。</div>':'')+pages[view]();
  if(view==='print') requestAnimationFrame(buildPaper);
 }
 function pageHeading(eyebrow,title,description,actions='') {
@@ -158,7 +172,7 @@ function pathHtml(ids) {
 function openRecord(id) {
  const r=state.records.find(r=>r.id===id);if(!r)return;
  const history=state.logs.filter(l=>l.recordId===id).slice(-5).reverse();
- modal(`<div class="detail-heading"><div class="tag-row"><span class="pill ${subjectClass(r.subject)}">${esc(r.subject)}</span><span class="pill">${esc(r.type)}</span><span class="pill">${['','基础','中等','挑战'][r.difficulty]}</span>${badge(r)}</div><h2>${esc(r.title)}</h2><p>${esc(r.source||'个人收录')} · 收录于 ${r.createdAt}</p>${r.captureSource?.needsReview?'<span class="capture-review-tag">有内容待核对</span>':''}${ai.sourceBadge(r)}</div><div class="detail-content"><section><h3>原题</h3><div class="question-text">${esc(r.content)}</div>${r.photo?`<a href="${esc(r.photo)}" target="_blank" rel="noopener"><img class="original-photo" src="${r.photo}" alt="保存的原题照片"></a><a class="text-btn" href="${esc(r.photo)}" target="_blank" rel="noopener">查看 / 保存原图 ${icon('arrow')}</a>`:''}</section><div class="answer-columns"><section class="answer-block wrong"><h3>当时的答案</h3><p>${esc(r.wrong||'尚未填写')}</p></section><section class="answer-block correct"><h3>参考答案</h3><p>${esc(r.answer||'尚未填写，可点击编辑补充')}</p></section></div><section><h3>错因与复盘 <span class="reason-tag">${esc(reasonLabel(r))}</span></h3><p class="prewrap">${esc(r.analysis||'尚未补充解析。回忆当时卡住的一步，下次会更有方向。')}</p></section><section><h3>知识点学习路径</h3>${pathHtml(r.knowledgeIds)}<small class="subtle">按前置关系排序；每个节点都可以打开学习。</small></section><section class="schedule-detail"><h3>复习节奏</h3><div class="schedule-steps">${INTERVALS.map((n,i)=>`<span class="${i<r.stage?'done':''}">${i<r.stage?icon('check'):icon('clock')}第 ${i+1} 轮 <small>${n} 天间隔</small></span>`).join('')}</div><p>下次复习：<strong>${r.nextReview?`${r.nextReview}（${dateLabel(r.nextReview)}）`:'四轮巩固已完成'}</strong></p>${history.length?`<div class="review-history">${history.map(l=>`<span>${l.date} · ${l.mastered?'已掌握':'仍需复习'}</span>`).join('')}</div>`:''}</section></div><div class="modal-footer"><button class="btn danger-text" data-delete="${esc(id)}">${icon('trash')}移入回收站</button><span class="flex-space"></span><button class="btn" data-ai="solve" data-id="${esc(id)}">${icon('spark')}AI 解题</button><button class="btn" data-edit="${esc(id)}">${icon('edit')}编辑</button><button class="btn primary" data-study="${esc(id)}">${icon('learn')}开始学习</button></div>`,true);
+ modal(`<div class="detail-heading"><div class="tag-row"><span class="pill ${subjectClass(r.subject)}">${esc(r.subject)}</span><span class="pill">${esc(r.type)}</span><span class="pill">${['','基础','中等','挑战'][r.difficulty]}</span>${badge(r)}</div><h2>${esc(r.title)}</h2><p>${esc(r.source||'个人收录')} · 收录于 ${r.createdAt}</p>${r.captureSource?.needsReview?'<span class="capture-review-tag">有内容待核对</span>':''}${ai.sourceBadge(r)}</div><div class="detail-content"><section><h3>原题</h3><div class="question-text">${esc(r.content)}</div>${r.photo?`<a href="${esc(photoURL(r.photo))}" target="_blank" rel="noopener"><img class="original-photo" src="${esc(photoURL(r.photo))}" alt="保存的原题照片"></a><a class="text-btn" href="${esc(photoURL(r.photo))}" target="_blank" rel="noopener">查看 / 保存原图 ${icon('arrow')}</a>`:''}</section><div class="answer-columns"><section class="answer-block wrong"><h3>当时的答案</h3><p>${esc(r.wrong||'尚未填写')}</p></section><section class="answer-block correct"><h3>参考答案</h3><p>${esc(r.answer||'尚未填写，可点击编辑补充')}</p></section></div><section><h3>错因与复盘 <span class="reason-tag">${esc(reasonLabel(r))}</span></h3><p class="prewrap">${esc(r.analysis||'尚未补充解析。回忆当时卡住的一步，下次会更有方向。')}</p></section><section><h3>知识点学习路径</h3>${pathHtml(r.knowledgeIds)}<small class="subtle">按前置关系排序；每个节点都可以打开学习。</small></section><section class="schedule-detail"><h3>复习节奏</h3><div class="schedule-steps">${INTERVALS.map((n,i)=>`<span class="${i<r.stage?'done':''}">${i<r.stage?icon('check'):icon('clock')}第 ${i+1} 轮 <small>${n} 天间隔</small></span>`).join('')}</div><p>下次复习：<strong>${r.nextReview?`${r.nextReview}（${dateLabel(r.nextReview)}）`:'四轮巩固已完成'}</strong></p>${history.length?`<div class="review-history">${history.map(l=>`<span>${l.date} · ${l.mastered?'已掌握':'仍需复习'}</span>`).join('')}</div>`:''}</section></div><div class="modal-footer"><button class="btn danger-text" data-delete="${esc(id)}">${icon('trash')}移入回收站</button><span class="flex-space"></span><button class="btn" data-ai="solve" data-id="${esc(id)}">${icon('spark')}AI 解题</button><button class="btn" data-edit="${esc(id)}">${icon('edit')}编辑</button><button class="btn primary" data-study="${esc(id)}">${icon('learn')}开始学习</button></div>`,true);
 }
 function learning() {
  if(session)return sessionPage();
@@ -177,7 +191,7 @@ function startSession(ids) {
 function sessionPage() {
  const r=state.records.find(r=>r.id===session.ids[session.index]);
  if(!r)return '';
- return `${pageHeading('FOCUS SESSION','给这道错题，再一次机会。','先独立回想解法，再对照答案，最后如实标记掌握情况。',`<button class="btn" data-action="end-session">结束本次学习</button>`)}<div class="session-progress"><span>本次学习 ${session.index+1} / ${session.ids.length}</span><div class="progress-track"><i style="width:${session.index/session.ids.length*100}%"></i></div></div><div class="study-layout"><section class="card study-card"><div class="tag-row"><span class="pill ${subjectClass(r.subject)}">${esc(r.subject)}</span><span class="pill">${esc(r.type)}</span><span class="pill">${esc(reasonLabel(r))}</span></div><h2>${esc(r.title)}</h2><p class="question-text">${esc(r.content)}</p>${r.photo?`<img class="original-photo" src="${r.photo}" alt="原题照片">`:''}<label class="reflection-label">我的再次思考<textarea id="scratch-answer" rows="4" placeholder="试着写下关键步骤（仅在本次题目中暂存，不作为正式答案）…"></textarea></label>${!session.revealed?`<button class="btn primary full" data-action="reveal">我已思考，查看答案与解析 ${icon('down')}</button>`:`<div class="revealed-answer"><h3>${icon('check')}参考答案</h3><p class="prewrap">${esc(r.answer||'这道题还没有填写答案，可退出学习后编辑补充。')}</p><h3>解析与错因回顾</h3><p class="prewrap">${esc(r.analysis||'暂无解析，请结合原题与参考答案自行复盘。')}</p>${r.wrong?`<details><summary>回顾上次的错误答案</summary><p>${esc(r.wrong)}</p></details>`:''}</div><div class="grade-area"><p>现在，这道题你掌握了吗？</p><div><button class="btn" data-grade="again">${icon('refresh')}仍需复习 <small>1 天后再见</small></button><button class="btn primary" data-grade="mastered">${icon('check')}已掌握 <small>${r.stage+1>=4?'完成四轮巩固':`${INTERVALS[Math.min(r.stage+1,3)]} 天后复测`}</small></button></div></div>`}</section><aside class="study-aside"><section class="card"><div class="section-title"><h2>先补什么，再学什么</h2>${icon('map')}</div>${pathHtml(r.knowledgeIds)}</section><section class="card"><h3>一个小提醒</h3><p class="subtle">“做对过”和“真正掌握”之间，隔着几次独立回想。不要急着打勾，给自己一点消化的时间。</p><span class="small-label">学习状态会回写报告与复习计划</span></section></aside></div>`;
+ return `${pageHeading('FOCUS SESSION','给这道错题，再一次机会。','先独立回想解法，再对照答案，最后如实标记掌握情况。',`<button class="btn" data-action="end-session">结束本次学习</button>`)}<div class="session-progress"><span>本次学习 ${session.index+1} / ${session.ids.length}</span><div class="progress-track"><i style="width:${session.index/session.ids.length*100}%"></i></div></div><div class="study-layout"><section class="card study-card"><div class="tag-row"><span class="pill ${subjectClass(r.subject)}">${esc(r.subject)}</span><span class="pill">${esc(r.type)}</span><span class="pill">${esc(reasonLabel(r))}</span></div><h2>${esc(r.title)}</h2><p class="question-text">${esc(r.content)}</p>${r.photo?`<img class="original-photo" src="${esc(photoURL(r.photo))}" alt="原题照片">`:''}<label class="reflection-label">我的再次思考<textarea id="scratch-answer" rows="4" placeholder="试着写下关键步骤（仅在本次题目中暂存，不作为正式答案）…"></textarea></label>${!session.revealed?`<button class="btn primary full" data-action="reveal">我已思考，查看答案与解析 ${icon('down')}</button>`:`<div class="revealed-answer"><h3>${icon('check')}参考答案</h3><p class="prewrap">${esc(r.answer||'这道题还没有填写答案，可退出学习后编辑补充。')}</p><h3>解析与错因回顾</h3><p class="prewrap">${esc(r.analysis||'暂无解析，请结合原题与参考答案自行复盘。')}</p>${r.wrong?`<details><summary>回顾上次的错误答案</summary><p>${esc(r.wrong)}</p></details>`:''}</div><div class="grade-area"><p>现在，这道题你掌握了吗？</p><div><button class="btn" data-grade="again">${icon('refresh')}仍需复习 <small>1 天后再见</small></button><button class="btn primary" data-grade="mastered">${icon('check')}已掌握 <small>${r.stage+1>=4?'完成四轮巩固':`${INTERVALS[Math.min(r.stage+1,3)]} 天后复测`}</small></button></div></div>`}</section><aside class="study-aside"><section class="card"><div class="section-title"><h2>先补什么，再学什么</h2>${icon('map')}</div>${pathHtml(r.knowledgeIds)}</section><section class="card"><h3>一个小提醒</h3><p class="subtle">“做对过”和“真正掌握”之间，隔着几次独立回想。不要急着打勾，给自己一点消化的时间。</p><span class="small-label">学习状态会回写报告与复习计划</span></section></aside></div>`;
 }
 function grade(mastered) {
  const r=applyReview(state,session.ids[session.index],mastered);
@@ -398,7 +412,7 @@ document.addEventListener('change',event=>{
   const file=el.files?.[0];el.value='';if(!file)return;
   if(file.size>8*1024*1024){toast('备份文件请控制在 8 MB 以内。','error');return;}
   file.text().then(text=>{
-   try{importCandidate=validateState(JSON.parse(text));confirmDialog('用备份恢复学习空间？',`已检查：${importCandidate.records.length} 道题、${importCandidate.knowledge.length} 个知识点、${importCandidate.logs.length} 条记录。导入会替换当前数据，建议先导出当前备份。`,()=>{try{localStorage.setItem(STORAGE_KEY,JSON.stringify(importCandidate));}catch{toast('空间不足，未导入。当前数据保持原样。','error');return;}state=importCandidate;importCandidate=null;selected.clear();session=null;draft=null;initialWarning='';closeModal();resetFilters();go('dashboard');toast('备份恢复完成，知识关系与复习计划已保留。');},'确认替换并恢复');}catch(e){toast(`导入失败：${e.message}`,'error');}
+   try{importCandidate=validateState(JSON.parse(text));confirmDialog('用备份恢复学习空间？',`已检查：${importCandidate.records.length} 道题、${importCandidate.knowledge.length} 个知识点、${importCandidate.logs.length} 条记录。导入会替换当前数据，建议先导出当前备份。`,()=>{try{localStorage.setItem(storageKey,JSON.stringify(importCandidate));}catch{toast('空间不足，未导入。当前数据保持原样。','error');return;}state=importCandidate;importCandidate=null;selected.clear();session=null;draft=null;initialWarning='';closeModal();resetFilters();go('dashboard');toast('备份恢复完成，知识关系与复习计划已保留。');},'确认替换并恢复');}catch(e){toast(`导入失败：${e.message}`,'error');}
   }).catch(()=>toast('文件读取失败，请重新选择。','error'));
  }
 });
@@ -424,12 +438,15 @@ document.addEventListener('dragover',event=>{if(event.target.closest('#upload-zo
 document.addEventListener('dragleave',event=>event.target.closest('#upload-zone')?.classList.remove('dragging'));
 document.addEventListener('drop',event=>{if(event.target.closest('#upload-zone')){event.preventDefault();readPhoto(event.dataTransfer.files[0]);}});
 $('#dialog').addEventListener('click',event=>{if(event.target===$('#dialog')){const rect=$('#dialog').getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)closeModal();}});
-window.addEventListener('hashchange',()=>{const v=location.hash.slice(1);if(['dashboard','notebook','intake','learning','knowledge','reports','print','ai','cloud','trash'].includes(v)){view=v;render();}});
+window.addEventListener('hashchange',()=>{const v=location.hash.slice(1);if(['dashboard','notebook','intake','learning','knowledge','reports','print','ai','cloud','trash','account','admin'].includes(v.split('?')[0])){view=v.split('?')[0];if(account.isAuthenticated()&&initialized)render();}});
 window.addEventListener('beforeprint',()=>{if(view==='print')buildPaper(false);});
 window.addEventListener('storage',event=>{
- if(event.key===STORAGE_KEY&&event.newValue){try{state=validateState(JSON.parse(event.newValue));selected.clear();session=null;render();toast('已载入另一标签页更新的学习数据。');}catch{toast('另一标签页的数据暂时无法读取，请导入备份。','error');}}
+ if(event.key===storageKey&&event.newValue){try{state=validateState(JSON.parse(event.newValue));selected.clear();session=null;render();toast('已载入另一标签页更新的学习数据。');}catch{toast('另一标签页的数据暂时无法读取，请导入备份。','error');}}
 });
-cloud=createCloudSync({getState:()=>state,applyState:next=>{state=next;try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state));}catch{toast('本机缓存空间不足，请等待云端同步完成或导出备份。','error');}},render,toast,esc,icon,openRecord});
-render();
-cloud.start();
-if(initialWarning)toast(initialWarning,'error');
+const account=createAccountUI({esc,icon,render,toast,modal,closeModal,confirmDialog,onReady:initializeAccount,onExit:async()=>{await cloud?.sync();await cloud?.stop();}});
+function accountSpacesOptions(){return account.workspaces.map(w=>`<option value="${esc(w.id)}" ${w.id===account.workspace.id?'selected':''}>${esc(w.name)} · ${{owner:'拥有者',editor:'可编辑',viewer:'只读'}[w.role]}</option>`).join('');}
+document.addEventListener('change',event=>{if(event.target.id==='active-space')account.selectSpace(event.target.value).catch(e=>toast(e.message,'error'));});
+// Stop mutation controls before their individual handlers run in a read-only space.
+document.addEventListener('click',event=>{if(!account.isReadonly())return;const el=event.target.closest('button,[data-action]');if(!el)return;const d=el.dataset;const actions=new Set(['new','save-draft','add-knowledge','confirm-import','load-demo','reset-data','clear-trash','import','delete-selected','clear-demo']);if(actions.has(d.action)||d.edit||d.delete||d.purge||d.restore||d.star||d.grade||d.editKnowledge||d.ai&&['apply','pipeline','solve'].includes(d.ai)){event.preventDefault();event.stopImmediatePropagation();toast('当前空间为只读，无法修改。','error');}},true);
+document.addEventListener('submit',event=>{if(account.isReadonly()&&['intake-form','knowledge-form','ai-result-form'].includes(event.target.id)){event.preventDefault();event.stopImmediatePropagation();toast('当前空间为只读，无法修改。','error');}},true);
+render();void account.start();

@@ -1,3 +1,4 @@
+import { workspaceContext,migrateLegacy,userWorkspaces } from './accounts.js';
 import { archiveFromChatGPT,allEntities,getEntity,cloudReady,readBounded } from './cloud-store.js';
 import { SUBJECTS,REASONS } from '../dist/model.js';
 
@@ -11,12 +12,13 @@ export const MCP_TOOLS=[
  {name:'search_mistakes',title:'查找个人错题',description:'按学科或关键词查询已归档错题，可用于去重、回顾与复习。',inputSchema:{type:'object',properties:{subject:{type:'string',enum:SUBJECTS},query:{type:'string',maxLength:200},limit:{type:'integer',minimum:1,maximum:50}},additionalProperties:false},annotations:readAnnotations},
  {name:'get_mistake',title:'回看错题与解析',description:'读取一条已归档错题的原题、答案、错因、知识点、原图链接与复习日期。',inputSchema:{type:'object',properties:{id:{type:'string'}},required:['id'],additionalProperties:false},annotations:readAnnotations}
 ];
+for(const tool of MCP_TOOLS)tool.inputSchema.properties.workspace_id={type:'string',description:'可选：已授权的共享空间 ID；默认保存到当前账号的个人空间'};
 const content=data=>({content:[{type:'text',text:JSON.stringify(data)}]});
 const summary=(record,origin)=>({id:record.id,title:record.title,subject:record.subject,reason:record.reason||'待核对',status:record.status,nextReview:record.nextReview,needsReview:!!record.captureSource?.needsReview,photo_saved:!!record.photo,url:origin+'/#notebook'});
 export async function executeMCPTool(name,args,env,origin,options={}){
  if(!cloudReady(env))throw new Error('云端归档尚未配置完成');
  if(name==='get_capture_status'){
-  const rows=await allEntities(env,'records');return {ready:true,archived_count:rows.filter(e=>!e.deleted&&!e.payload.archived).length,subjects:SUBJECTS,photo_archive:true,workflow:'在手机 ChatGPT 选择已连接的知错应用，拍照并发送。由 ChatGPT 识别、解题与分类后调用 archive_mistakes，自动保留原图并归档。看不清或无法判断的内容标记待核对。',workbench_url:origin};
+  const rows=await allEntities(env,'records');return {ready:true,workspace_id:env.WORKSPACE_ID,archived_count:rows.filter(e=>!e.deleted&&!e.payload.archived).length,subjects:SUBJECTS,photo_archive:true,workflow:'在手机 ChatGPT 选择已连接的知错应用，拍照并发送。由 ChatGPT 识别、解题与分类后调用 archive_mistakes，自动保留原图并归档。看不清或无法判断的内容标记待核对。',workbench_url:origin};
  }
  if(name==='archive_mistakes'){
   const result=await archiveFromChatGPT(env,args,options);
@@ -27,7 +29,7 @@ export async function executeMCPTool(name,args,env,origin,options={}){
   const records=rows.filter(e=>!e.deleted&&!e.payload.archived).map(e=>e.payload).filter(r=>(!args.subject||r.subject===args.subject)&&(!query||[r.title,r.content,r.analysis].join(' ').toLowerCase().includes(query))).slice(0,Math.max(1,Math.min(50,Number(args.limit)||20)));
   return {records:records.map(r=>summary(r,origin)),count:records.length};
  }
- if(name==='get_mistake'){const entity=await getEntity(env,'records',String(args.id||''));if(!entity||entity.deleted)throw new Error('未找到这道错题');return {record:entity.payload,photo_url:entity.payload.photo?origin+entity.payload.photo:null,workbench_url:origin+'/#notebook'};}
+ if(name==='get_mistake'){const entity=await getEntity(env,'records',String(args.id||''));if(!entity||entity.deleted)throw new Error('未找到这道错题');return {record:entity.payload,photo_url:entity.payload.photo?origin+entity.payload.photo+'?workspace='+encodeURIComponent(env.WORKSPACE_ID):null,workbench_url:origin+'/#notebook'};}
  throw new Error('工具不存在');
 }
 export async function handleMCP(request,env,options={}){
@@ -37,11 +39,11 @@ export async function handleMCP(request,env,options={}){
  const id=body?.id??null,respond=result=>Response.json({jsonrpc:'2.0',id,result},{headers:{'Cache-Control':'no-store'}});
  if(body.method==='notifications/initialized')return new Response(null,{status:202});
  if(body.method==='server/discover')return respond({supportedVersions:['2026-07-28'],capabilities:{tools:{}}});
- if(body.method==='initialize')return respond({protocolVersion:body.params?.protocolVersion==='2026-07-28'?'2026-07-28':'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'知错 · 拍照归档',version:'3.0.0'},instructions:'用户在知错对话中发来题目照片时，识别题干、解题、按学科/知识点/错因分类，并调用 archive_mistakes 保存原图和结构化结果。不能确定的内容标为待核对，不编造学生原始错解。'});
+ if(body.method==='initialize')return respond({protocolVersion:body.params?.protocolVersion==='2026-07-28'?'2026-07-28':'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'知错 · 拍照归档',version:'4.0.0'},instructions:'用户在知错对话中发来题目照片时，识别题干、解题、按学科/知识点/错因分类，并调用 archive_mistakes 保存原图和结构化结果。不能确定的内容标为待核对，不编造学生原始错解。'});
  if(body.method==='ping')return respond({});
  if(body.method==='tools/list')return respond({tools:MCP_TOOLS});
  if(body.method==='tools/call'){
-  try{return respond(content(await executeMCPTool(body.params?.name,body.params?.arguments||{},env,new URL(request.url).origin,options)));}catch(e){return respond({isError:true,content:[{type:'text',text:e.message||'归档处理失败，请重试'}]});}
+  try{const context=await workspaceContext(request,env,{write:body.params?.name==='archive_mistakes',siteOnly:true,workspaceId:body.params?.arguments?.workspace_id});await migrateLegacy(env,context.user);const result=await executeMCPTool(body.params?.name,body.params?.arguments||{},context.env,new URL(request.url).origin,options);if(body.params?.name==='get_capture_status'){result.account={id:context.user.id,displayName:context.user.display_name,role:context.user.role};result.workspaces=await userWorkspaces(env,context.user.id);}return respond(content(result));}catch(e){return respond({isError:true,content:[{type:'text',text:e.message||'归档处理失败，请重试'}]});}
  }
  return Response.json({jsonrpc:'2.0',id,error:{code:-32601,message:'Method not found'}},{headers:{'Cache-Control':'no-store'}});
 }

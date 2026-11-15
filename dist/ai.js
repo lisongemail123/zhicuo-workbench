@@ -1,3 +1,4 @@
+import { photoURL } from './account-context.js';
 import { uid, REASONS, SUBJECTS, learningPath } from './model.js';
 
 export const AI_CONFIG_KEY = 'zhicuo.ai.config.v1';
@@ -77,7 +78,7 @@ export async function requestAI(profile,apiKey,task,input={},signal,fetchImpl=gl
 export async function imageForRecognition(photo,signal){
   if(photo.startsWith('data:image/'))return photo;
   if(!/^\/api\/files\/photo-[a-f0-9]{64}$/.test(photo))throw new Error('原图地址无效');
-  const response=await fetch(photo,{credentials:'same-origin',signal});if(!response.ok)throw new Error('原图暂时无法读取，请检查云端连接');
+  const response=await fetch(photoURL(photo),{credentials:'same-origin',signal});if(!response.ok)throw new Error('原图暂时无法读取，请检查云端连接');
   const blob=await response.blob();
   if(blob.size>12*1024*1024)throw new Error('原图超过识别大小限制');
   if(blob.size<=1.5*1024*1024&&['image/png','image/jpeg','image/webp'].includes(blob.type))return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(blob);});

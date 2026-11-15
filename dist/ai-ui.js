@@ -1,18 +1,20 @@
+import { scopedKey } from './account-context.js';
 import { AI_CONFIG_KEY, AI_SESSION_KEY, AI_PROVIDERS, normalizeAIConfig, normalizeProfile, normalizeEndpoint, requestAI, recognizeLocal, attachAIKnowledge, imageForRecognition } from './ai.js';
 import { uid, SUBJECTS, REASONS } from './model.js';
 
 export function createAIWorkspace(deps) {
   const {getState,getDraft,saveState,render,modal,closeModal,toast,navigate,icon,esc,openRecord,confirmDialog}=deps;
+  const configKey=scopedKey(AI_CONFIG_KEY),secretKey=scopedKey(AI_SESSION_KEY);
   let config,keys={},editingId=null,modelOptions=[],pending=null,job=null;
   const statuses=new Map();
-  try{config=normalizeAIConfig(JSON.parse(localStorage.getItem(AI_CONFIG_KEY)||'{}'));}catch{config=normalizeAIConfig();}
-  try{const stored=JSON.parse(sessionStorage.getItem(AI_SESSION_KEY)||'{}');for(const [id,k] of Object.entries(stored))if(k&&typeof k.apiKey==='string'&&k.apiKey.length<=2000&&typeof k.endpoint==='string')keys[id]=k;}catch{}
+  try{config=normalizeAIConfig(JSON.parse(localStorage.getItem(configKey)||'{}'));}catch{config=normalizeAIConfig();}
+  try{const stored=JSON.parse(sessionStorage.getItem(secretKey)||'{}');for(const [id,k] of Object.entries(stored))if(k&&typeof k.apiKey==='string'&&k.apiKey.length<=2000&&typeof k.endpoint==='string')keys[id]=k;}catch{}
   const profileFor=task=>config.profiles.find(p=>p.id===(task==='ocr'?config.ocrProfileId:config.solveProfileId));
   const keyFor=p=>p&&keys[p.id]?.endpoint===`${p.protocol}:${p.baseUrl}`?keys[p.id].apiKey:'';
   const providerName=id=>AI_PROVIDERS.find(p=>p.id===id)?.name||'自定义接口';
   const choose=(items,value)=>items.map(([v,l])=>`<option value="${esc(v)}" ${v===value?'selected':''}>${esc(l)}</option>`).join('');
-  function persistConfig(){try{config=normalizeAIConfig(config);localStorage.setItem(AI_CONFIG_KEY,JSON.stringify(config));return true;}catch{toast('模型配置暂时无法保存，请检查浏览器存储空间。','error');return false;}}
-  function persistKeys(){try{sessionStorage.setItem(AI_SESSION_KEY,JSON.stringify(keys));}catch{toast('会话存储不可用，API Key 仅在当前页面内存中保留。','error');}}
+  function persistConfig(){try{config=normalizeAIConfig(config);localStorage.setItem(configKey,JSON.stringify(config));return true;}catch{toast('模型配置暂时无法保存，请检查浏览器存储空间。','error');return false;}}
+  function persistKeys(){try{sessionStorage.setItem(secretKey,JSON.stringify(keys));}catch{toast('会话存储不可用，API Key 仅在当前页面内存中保留。','error');}}
   function page(){
     const solve=profileFor('solve'),vision=profileFor('ocr');
     return `<div class="page-heading"><div><div class="eyebrow">OCR & AI ASSISTANT</div><h1>让题目被看见，让思路被讲清。</h1><p>配置自己的模型，识别原题，自动生成可核对的答案与解析。</p></div><button class="btn primary" data-ai="add">${icon('plus')}添加模型配置</button></div>
@@ -53,7 +55,7 @@ export function createAIWorkspace(deps) {
       const {profile,apiKey}=readForm();
       if(!editingId&&config.profiles.length>=20)throw new Error('最多保存 20 套模型配置');
       const next=normalizeAIConfig({...config,profiles:config.profiles.filter(p=>p.id!==profile.id).concat(profile)});
-      localStorage.setItem(AI_CONFIG_KEY,JSON.stringify(next));config=next;
+      localStorage.setItem(configKey,JSON.stringify(next));config=next;
       keys[profile.id]={apiKey,endpoint:`${profile.protocol}:${profile.baseUrl}`};persistKeys();statuses.delete(profile.id);
       closeModal();render();toast('模型配置已保存，API Key 仅在当前标签页会话中保留。');
     }catch(e){toast(e.message,'error');}
