@@ -91,7 +91,7 @@ npm run build
 
 生成 `dist/server/index.js`，是带有 `fetch(request)` 入口的独立 Cloudflare Worker ES Module。HTML、CSS、前端 JS、OCR 主库和 worker 被嵌入部署文件，`/api/ai` 提供模型转发。云端归档使用 Sites 管理的 D1 与 R2，无需预置平台模型 API Key。
 
-本项目 GitHub 仓库不包含个人 Sites 身份。使用 Sites 部署时，保留或创建属于自己站点的 `.openai/hosting.json`，填写真实 `project_id`，并采用 Worker 部署配置（不设置 `static`）。声明 `d1: {"binding":"DB","migrations_dir":"drizzle"}`、`r2: {"binding":"BUCKET"}` 与 `capabilities: ["mcp"]`，参考 [hosting.example.json](hosting.example.json)。部署包包括该清单、`dist/server/index.js` 与 `drizzle/` 中生成的 SQL 和元数据。Sites 应用数据库迁移，并创建或刷新站点应用。不要使用其他人的站点身份。
+本项目 GitHub 仓库不包含个人 Sites 身份。使用 Sites 部署时，保留或创建属于自己站点的 `.openai/hosting.json`，填写真实 `project_id`，并采用 Worker 部署配置（不设置 `static`）。声明 `d1: "DB"`、`r2: "BUCKET"` 与 `capabilities: ["mcp"]`，参考 [hosting.example.json](hosting.example.json)。部署包包括该清单、`dist/server/index.js` 与 `drizzle/` 中生成的 SQL 和元数据。Sites 应用数据库迁移，并创建或刷新站点应用。不要使用其他人的站点身份。
 
 云端接口依赖 Sites 的站点访问控制，当前按个人私有站点使用。独立部署到其他公网环境时，需在这些数据接口前接入自己的身份验证；本地开发服务仅监听回环地址。
 
