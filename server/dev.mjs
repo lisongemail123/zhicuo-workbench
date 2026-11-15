@@ -3,20 +3,23 @@ import { readFile,stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handleAIRequest } from './gateway.js';
+import { handleCloudRequest } from './cloud-routes.js';
+import { handleMCP } from './mcp.js';
+import { createLocalCloud } from './local-cloud.mjs';
 const root=fileURLToPath(new URL('../dist/',import.meta.url));
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.md':'text/plain; charset=utf-8'};
-export function createAppServer() {
+export function createAppServer({cloudEnv=createLocalCloud()}={}) {
   return http.createServer(async(req,res)=>{
     try{
       const url=new URL(req.url,'http://127.0.0.1');
-      if(url.pathname==='/api/ai') {
+      if(url.pathname==='/api/ai'||url.pathname==='/mcp'||url.pathname.startsWith('/api/cloud/')||url.pathname.startsWith('/api/files/')) {
         // Use the actual Host for origin comparison; bind to loopback by default.
         const requestUrl=`http://${req.headers.host||'127.0.0.1'}${req.url}`;
         const controller=new AbortController();req.on('aborted',()=>controller.abort());res.on('close',()=>{if(!res.writableEnded)controller.abort();});
         const request=new Request(requestUrl,{method:req.method,headers:req.headers,body:['GET','HEAD'].includes(req.method)?undefined:req,duplex:'half',signal:controller.signal});
-        const response=await handleAIRequest(request);res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));return;
+        const response=url.pathname==='/api/ai'?await handleAIRequest(request):url.pathname==='/mcp'?await handleMCP(request,cloudEnv):await handleCloudRequest(request,cloudEnv);res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));return;
       }
-      if(url.pathname==='/api/health'){res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({ok:true,version:'2.0.1',ai:true}));return;}
+      if(url.pathname==='/api/health'){res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({ok:true,version:'3.0.0',ai:true,cloud:true,chatgpt:true}));return;}
       if(!['GET','HEAD'].includes(req.method)){res.writeHead(405);res.end('Method not allowed');return;}
       const name=decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname);
       const file=path.resolve(root,`.${name}`);

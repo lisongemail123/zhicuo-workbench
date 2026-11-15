@@ -2,9 +2,28 @@
 
 一个会随学习反馈推进复习的个人错题本：**录入 → 结构化归档 → 学习与状态回写 → 报告与下一步 → A4 组卷打印**。
 
-根据《我用 WorkBuddy 做了个会自己推进的错题本》的需求实现，采用奶油底、砖红与深可可配色。2.0 增加 **OCR、可配置大模型与自动答案解析**，前端使用原生 HTML/CSS/JavaScript，后端提供同源 AI 转发接口。
+根据《我用 WorkBuddy 做了个会自己推进的错题本》的需求实现，采用奶油底、砖红与深可可配色。3.0 增加 **手机 ChatGPT 拍照归档、云端原图存储与跨设备同步**，同时保留 OCR、可配置大模型与自动答案解析，前端使用原生 HTML/CSS/JavaScript，后端提供同源 AI 转发接口。
 
 [打开已发布的工作台](https://cuoti-study-desk-k7m3.doublecurry16.chatgpt.site) · [配置模型与 OCR](https://cuoti-study-desk-k7m3.doublecurry16.chatgpt.site/#ai)（使用获授权的账户访问）。
+
+## 手机 ChatGPT：拍照 → 分析 → 自动归档
+
+首次连接后，在手机 ChatGPT 使用“知错”应用的对话中拍照并发送题图。ChatGPT 读取照片、转写题干、生成答案和分步解析，提取学科、知识点与有依据的错因，再通过应用工具将**原图和结构化结果一起保存到云端**。工作台自动同步后即可查看，并默认安排明天首次复习。
+
+1. 发布支持 MCP 的个人私有站点后，Sites 为站点创建应用与插件。
+2. 在 ChatGPT 设置 → 插件 → 你创建的，找到“知错”并完成首次安装/连接与授权；手机与工作台使用同一获授权账户。
+3. 在对话中选择或 @“知错”，发送题目照片。可在首条消息加入下面的长期使用指令。
+4. 归档完成后，ChatGPT 返回归档数量、重复数量、原图保存状态和工作台链接。
+
+```text
+以后我在此对话发送的题目照片，请自动识别题干、生成参考答案和解析，按学科、知识点与有依据的错因分类，保留原图并归档到知错。无法确认的内容标记待核对，不要编造。
+```
+
+这条入口使用当前 ChatGPT 对话的识别与分析能力，不要求在工作台填写外部模型 API Key。网页上的“自动解题”仍可独立使用之前配置的外部模型。日常处理的触发点是**在使用知错的 ChatGPT 对话中发送照片**；不是后台监听手机相机。应用在手机中的可用性仍受 ChatGPT 版本、账户和客户端提供的入口影响。
+
+每张照片可归档 1–20 道题，原图最大 12 MB，支持 JPG、PNG、WebP、HEIC/HEIF 等常见图片；原图按内容去重。临时下载 URL 不持久保存，图片写入私有文件存储。相同照片重试不会生成重复题目。没有原错解证据时，错因保留为“待核对”，不会强行归入某个错误原因；模糊条件与答案也应明确标注待核对。
+
+工作台新增“手机归档与同步”页面，可复制指令、立即同步、回看最近从 ChatGPT 归档的题目，以及处理真实的跨设备编辑冲突。
 
 ## 新增：OCR 与自动解题
 
@@ -60,7 +79,7 @@ npm ci
 npm start
 ```
 
-打开 <http://127.0.0.1:4173>。可用 `PORT=3000 npm start` 修改端口；Windows PowerShell 使用 `$env:PORT=3000; npm start`。
+打开 <http://127.0.0.1:4173>。本地服务启动时在被 Git 忽略的 `work/cloud/` 下创建 SQLite 与原图存储，并应用本地迁移；不需要云端凭据。可用 `PORT=3000 npm start` 修改端口；Windows PowerShell 使用 `$env:PORT=3000; npm start`。
 
 本地服务默认只监听 `127.0.0.1`，同时提供静态页面与 `/api/ai`。2.0 不能仅用 Python 静态服务器运行完整 AI 功能：纯静态托管可浏览错题并使用本地 OCR，但自动解题和视觉 OCR 需要同源网关。
 
@@ -70,9 +89,11 @@ npm start
 npm run build
 ```
 
-生成 `dist/server/index.js`，是带有 `fetch(request)` 入口的独立 Cloudflare Worker ES Module。HTML、CSS、前端 JS、OCR 主库和 worker 被嵌入部署文件，`/api/ai` 提供模型转发。无需服务端数据库或预置平台 API Key。
+生成 `dist/server/index.js`，是带有 `fetch(request)` 入口的独立 Cloudflare Worker ES Module。HTML、CSS、前端 JS、OCR 主库和 worker 被嵌入部署文件，`/api/ai` 提供模型转发。云端归档使用 Sites 管理的 D1 与 R2，无需预置平台模型 API Key。
 
-本项目 GitHub 仓库不包含个人 Sites 身份。使用 Sites 部署时，保留或创建属于自己站点的 `.openai/hosting.json`，填写真实 `project_id`，并采用 Worker 部署配置（不设置 `static`）。部署产物为该清单与 `dist/server/index.js`。不要使用其他人的站点身份。
+本项目 GitHub 仓库不包含个人 Sites 身份。使用 Sites 部署时，保留或创建属于自己站点的 `.openai/hosting.json`，填写真实 `project_id`，并采用 Worker 部署配置（不设置 `static`）。声明 `d1: {"binding":"DB","migrations_dir":"drizzle"}`、`r2: {"binding":"BUCKET"}` 与 `capabilities: ["mcp"]`，参考 [hosting.example.json](hosting.example.json)。部署包包括该清单、`dist/server/index.js` 与 `drizzle/` 中生成的 SQL 和元数据。Sites 应用数据库迁移，并创建或刷新站点应用。不要使用其他人的站点身份。
+
+云端接口依赖 Sites 的站点访问控制，当前按个人私有站点使用。独立部署到其他公网环境时，需在这些数据接口前接入自己的身份验证；本地开发服务仅监听回环地址。
 
 OCR 主库及 worker 已随源码保留。若需要重新生成：
 
@@ -92,6 +113,8 @@ npm run build
 
 测试覆盖原有复习排期、日期计算、备份校验、知识依赖、组卷策略，以及 AI 配置、协议适配、图像请求、错误处理、密钥隔离、过期结果防覆盖、取消操作、结果采用与原有功能回归。DOM 交互测试使用模拟服务商，不会调用付费模型。
 
+归档测试覆盖文件下载、原图持久化、同图多题、去重、未知错因、冲突处理和离线恢复。MCP 文件参数遵循 OpenAI `openai/fileParams` 规范，真实手机上传需要首次连接后用题图验证。
+
 另已用真实 Tesseract 引擎实测中英文印刷题图。当前环境没有真实模型 API Key，真实服务商联调需由使用者配置后完成；浏览器视觉与实际打印效果仍需在目标浏览器中验证。
 
 ## 源码结构
@@ -102,16 +125,23 @@ npm run build
 │   ├── index.html, style.css   # 应用入口、主题和打印样式
 │   ├── app.js, model.js        # 学习工作台、数据与业务逻辑
 │   ├── ai.js, ai-ui.js, ai.css # OCR、协议工具、模型配置与结果流程
+│   ├── cloud.js, cloud.css    # 云端同步、离线缓存与手机归档说明
 │   └── vendor/tesseract/       # OCR 浏览器组件与许可证
 ├── server/
 │   ├── gateway.js             # 同源模型网关与输入校验
+│   ├── mcp.js                 # ChatGPT 文件参数与归档工具
+│   ├── cloud-store.js         # 结构化归档、原图存储、版本控制
+│   ├── cloud-routes.js        # 同步与私有原图接口
+│   ├── local-cloud.mjs        # 本地 SQLite/R2 适配
 │   ├── dev.mjs                # 本地 Node HTTP 服务
 │   └── worker.js              # Sites / Cloudflare Worker 入口
 ├── scripts/
 │   ├── build.mjs              # 嵌入静态文件并构建独立 Worker
 │   ├── vendor-ocr.mjs         # OCR 组件再生成
 │   └── check.mjs              # 源码语法检查
-├── tests/                     # 业务、网关、服务与 DOM 交互测试
+├── db/schema.js               # 云端数据表定义
+├── drizzle/                   # 生成的 SQL 迁移与元数据
+├── tests/                     # 业务、归档、同步、网关与 DOM 交互测试
 ├── package.json, package-lock.json
 ├── THIRD_PARTY.md
 └── README.md
@@ -125,8 +155,14 @@ npm run build
 
 当前掌握率按在册错题的状态计算，趋势图统计复习次数；回收站题目不计入当前掌握率或到期清单，但保留历史记录。没有关联错题的知识点不计入掌握率。
 
-学习数据仍保存在当前浏览器 `localStorage`，键名保持 `zhicuo.workbench.v1`，兼容旧版数据，不跨设备同步。不同域名、端口或浏览器拥有各自存储；清除浏览器数据会删除本地错题。迁移请先导出 JSON，再在目标设备或地址导入。导入会替换当前学习空间，请先保存原有备份。
+真实学习数据在启用云端后同步到 D1，原图保存在 R2；浏览器 `localStorage` 保留离线缓存，键名仍为 `zhicuo.workbench.v1`，兼容旧版数据。旧版真实错题、知识点与学习记录会合并同步，示例题和示例学习记录不上传。
+
+各设备通过版本号合并更新；同一条目被同时修改时保留冲突供选择，不直接覆盖较新的云端版本。离线改动保留在本机，联网后继续同步。云端删除用版本化标记传播，永久删除最后一条引用的错题后清理对应原图。
+
+JSON 备份保存结构化数据和云端原图引用，**不会打包云端图片本体**；同一工作台中可继续访问这些私有原图，迁移到新的部署时需另外迁移文件存储。旧版内嵌照片仍可导入。模型配置和 API Key 不进入云端学习数据。
 
 照片支持 JPG/PNG/WebP，单张不超过 1.5 MB；备份导入不超过 8 MB，实际容量受浏览器配额限制。推荐一题一张、清晰拍摄。印刷体本地识别效果通常优于手写，复杂公式、模糊字迹和图示条件均需核对。模型也可能出错，采用前请检查答案与解析。
 
 相似训练题仍来自可编辑的内置题库。打印使用浏览器原生打印，建议 A4 纵向、关闭页眉页脚；线下完成后回到学习中心更新掌握状态。
+
+数据库结构变更使用 `npm run db:generate` 生成迁移。已应用的 SQL、快照与日志不可改写；后续结构调整应追加迁移。

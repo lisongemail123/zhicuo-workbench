@@ -74,6 +74,23 @@ export async function requestAI(profile,apiKey,task,input={},signal,fetchImpl=gl
   if(!response.ok)throw new Error(data.error||`AI 服务请求失败（${response.status}）`);
   return data;
 }
+export async function imageForRecognition(photo,signal){
+  if(photo.startsWith('data:image/'))return photo;
+  if(!/^\/api\/files\/photo-[a-f0-9]{64}$/.test(photo))throw new Error('原图地址无效');
+  const response=await fetch(photo,{credentials:'same-origin',signal});if(!response.ok)throw new Error('原图暂时无法读取，请检查云端连接');
+  const blob=await response.blob();
+  if(blob.size>12*1024*1024)throw new Error('原图超过识别大小限制');
+  if(blob.size<=1.5*1024*1024&&['image/png','image/jpeg','image/webp'].includes(blob.type))return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(blob);});
+  let image;
+  try{image=await createImageBitmap(blob);}catch{throw new Error('当前浏览器无法解码原图，请从 ChatGPT 继续分析，或使用 JPG/PNG 原图');}
+  try{
+   let scale=Math.min(1,2600/Math.max(image.width,image.height));
+   for(let pass=0;pass<5;pass++){
+    const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);const data=canvas.toDataURL('image/jpeg',.86-pass*.06);if(data.length<2100000)return data;scale*=.8;
+   }
+   throw new Error('原图压缩后仍过大，请裁切为单道题后重试');
+  }finally{image.close();}
+}
 let libraryPromise;
 function loadOcrLibrary() {
   if(globalThis.Tesseract)return Promise.resolve(globalThis.Tesseract);

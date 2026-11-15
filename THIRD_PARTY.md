@@ -5,3 +5,6 @@
 - **esbuild** is a build-time dependency. The hosted Worker bundles the application and static JavaScript assets; it has no Node.js runtime dependency.
 
 Official implementation references: [Tesseract.js API](https://github.com/naptha/tesseract.js/blob/master/docs/api.md), [OpenAI Chat API](https://platform.openai.com/docs/api-reference/chat/create), [DeepSeek API](https://api-docs.deepseek.com/), [Qwen compatibility](https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope), [SiliconFlow Chat API](https://docs.siliconflow.cn/docs/api/chat-completions-post), [Anthropic Messages](https://platform.claude.com/docs/en/api/messages/create).
+
+- **Drizzle ORM / Drizzle Kit** are development dependencies for schema definitions and immutable SQL migration generation. Production uses D1 prepared statements. The local-only adapter uses Node.js SQLite.
+- ChatGPT file inputs follow the [Plugins file parameter reference](https://developers.openai.com/plugins/reference#file-apis); connection availability follows [Connected apps in ChatGPT](https://help.openai.com/en/articles/11487775-connected-apps-in-chatgpt).

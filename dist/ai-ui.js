@@ -1,4 +1,4 @@
-import { AI_CONFIG_KEY, AI_SESSION_KEY, AI_PROVIDERS, normalizeAIConfig, normalizeProfile, normalizeEndpoint, requestAI, recognizeLocal, attachAIKnowledge } from './ai.js';
+import { AI_CONFIG_KEY, AI_SESSION_KEY, AI_PROVIDERS, normalizeAIConfig, normalizeProfile, normalizeEndpoint, requestAI, recognizeLocal, attachAIKnowledge, imageForRecognition } from './ai.js';
 import { uid, SUBJECTS, REASONS } from './model.js';
 
 export function createAIWorkspace(deps) {
@@ -82,7 +82,7 @@ export function createAIWorkspace(deps) {
   function finish(current){if(job===current){job=null;document.querySelector('#ai-job')?.remove();render();}}
   function snapshot(target){return JSON.stringify([target.content,target.photo,target.wrong,target.subject,target.answer,target.analysis]);}
   function context(recordId){const target=recordId?getState().records.find(r=>r.id===recordId&&!r.archived):getDraft();if(!target)throw new Error('请先打开一道题，或进入错题录入');return {target,recordId:recordId||null,snapshot:snapshot(target)};}
-  function stillCurrent(ctx){const target=ctx.recordId?getState().records.find(r=>r.id===ctx.recordId&&!r.archived):getDraft();return target&&target===ctx.target&&snapshot(target)===ctx.snapshot;}
+  function stillCurrent(ctx){const target=ctx.recordId?getState().records.find(r=>r.id===ctx.recordId&&!r.archived):getDraft();return target&&(ctx.recordId||target===ctx.target)&&snapshot(target)===ctx.snapshot;}
   async function solve(ctx,content,current){
     const p=requireProfile('solve');updateJob(current,`正在用 ${p.label} 生成答案与解析`);
     const response=await requestAI(p,keyFor(p),'solve',{content,subject:ctx.target.subject,wrong:ctx.target.wrong,knownKnowledge:getState().knowledge.filter(k=>k.subject===ctx.target.subject).map(k=>k.name)},current.controller.signal);
@@ -105,9 +105,9 @@ export function createAIWorkspace(deps) {
       const ctx=context();if(!ctx.target.photo)throw new Error('请先上传原题照片');
       let vision;if(config.ocrEngine==='vision')vision=requireProfile('ocr');if(andSolve)requireProfile('solve');
       current=begin(config.ocrEngine==='local'?'正在启动本地 OCR':'正在识别题目照片');closeModal();
-      let ocr;
-      if(vision){const response=await requestAI(vision,keyFor(vision),'ocr',{photo:ctx.target.photo},current.controller.signal);ocr={...response.result,engine:'vision',model:vision.model};}
-      else ocr=await recognizeLocal(ctx.target.photo,config.ocrLanguage,{signal:current.controller.signal,onProgress:m=>{const labels={'recognizing text':'正在识别题目文字','loading language traineddata':'正在下载识别字库','loading tesseract core':'正在加载 OCR 引擎','initializing api':'正在初始化 OCR'};updateJob(current,labels[m.status]||'正在准备本地 OCR',m.progress);}});
+      let ocr;const image=await imageForRecognition(ctx.target.photo,current.controller.signal);
+      if(vision){const response=await requestAI(vision,keyFor(vision),'ocr',{photo:image},current.controller.signal);ocr={...response.result,engine:'vision',model:vision.model};}
+      else ocr=await recognizeLocal(image,config.ocrLanguage,{signal:current.controller.signal,onProgress:m=>{const labels={'recognizing text':'正在识别题目文字','loading language traineddata':'正在下载识别字库','loading tesseract core':'正在加载 OCR 引擎','initializing api':'正在初始化 OCR'};updateJob(current,labels[m.status]||'正在准备本地 OCR',m.progress);}});
       if(current.controller.signal.aborted)return;
       if(!stillCurrent(ctx))throw new Error('题目或照片已改动，本次识别结果未应用，请重新识别');
       const response=andSolve?await solve(ctx,ocr.text,current):{};
@@ -166,5 +166,5 @@ export function createAIWorkspace(deps) {
     if(el.name==='provider'&&el.closest('#ai-profile-form')){const p=AI_PROVIDERS.find(p=>p.id===el.value);const form=el.form;form.elements.protocol.value=p.protocol;form.elements.baseUrl.value=p.baseUrl;form.elements.model.value=p.model;form.elements.vision.checked=p.vision;form.elements.apiKey.value='';form.elements.apiKey.placeholder='请填写该服务商的 API Key';document.querySelector('#ai-model-options').innerHTML='';document.querySelector('#ai-test-output').textContent='';}
   });
   document.addEventListener('submit',event=>{if(event.target.id==='ai-profile-form')saveProfile(event);if(event.target.id==='ai-result-form')applyResult(event);});
-  return {page,toolbar,startSolve,startOcr,isBusy:()=>!!job,cancel,onPhotoUploaded:()=>{cancel();if(config.autoOcr)void startOcr(config.autoSolve);},sourceBadge:r=>r.aiSource?`<div class="ai-source-badge">${icon('spark')}答案与解析来自 ${esc(r.aiSource.model)} · 已核对采用</div>`:''};
+  return {page,toolbar,startSolve,startOcr,isBusy:()=>!!job,cancel,onPhotoUploaded:()=>{cancel();if(config.autoOcr)void startOcr(config.autoSolve);},sourceBadge:r=>r.aiSource?`<div class="ai-source-badge">${icon('spark')}答案与解析来自 ${esc(r.aiSource.model)} · ${r.aiSource.reviewed?'已核对采用':'自动生成，待核对'}</div>`:''};
 }

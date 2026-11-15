@@ -8,10 +8,13 @@ import { JSDOM,VirtualConsole } from 'jsdom';
 import { AI_CONFIG_KEY,AI_SESSION_KEY } from '../dist/ai.js';
 import { STORAGE_KEY,createInitialState,addDays,today } from '../dist/model.js';
 import { handleAIRequest } from '../server/gateway.js';
+import { handleCloudRequest } from '../server/cloud-routes.js';
+import { createLocalCloud } from '../server/local-cloud.mjs';
+import { archiveFromChatGPT,getEntity,writeEntity,allEntities } from '../server/cloud-store.js';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
 const html=await readFile(path.join(root,'dist/index.html'),'utf8');
-const bundle=await build({entryPoints:[path.join(root,'dist/app.js')],bundle:true,write:false,format:'iife',platform:'browser',target:'es2022',define:{'import.meta.url':JSON.stringify('https://desk.example.com/ai.js')},plugins:[{name:'test-only-inspection',setup(b){b.onLoad({filter:/\/dist\/app\.js$/},async({path:p})=>({loader:'js',contents:await readFile(p,'utf8')+'\nglobalThis.__qa={get state(){return state},get draft(){return draft},go,openRecord,actions,ai};'}));}}]});
+const bundle=await build({entryPoints:[path.join(root,'dist/app.js')],bundle:true,write:false,format:'iife',platform:'browser',target:'es2022',define:{'import.meta.url':JSON.stringify('https://desk.example.com/ai.js')},plugins:[{name:'test-only-inspection',setup(b){b.onLoad({filter:/\/dist\/app\.js$/},async({path:p})=>({loader:'js',contents:await readFile(p,'utf8')+'\nglobalThis.__qa={get state(){return state},get draft(){return draft},go,openRecord,actions,ai,cloud};'}));}}]});
 const base={id:'test-profile',provider:'custom',protocol:'openai',baseUrl:'https://api.example.com/v1',model:'test-model',label:'测试助教',vision:true,timeout:15};
 const fakeKey='test-key-for-ui-only';
 const answer={title:'解一元一次方程',subject:'数学',answer:'x = 3',analysis:'1. 两边减去 2。\n2. 得到 x = 3。',reason:'计算失误',knowledgePoints:[{name:'一元一次方程',explanation:'运用等式的性质。',prerequisites:[]}]};
@@ -19,17 +22,18 @@ const upstream=data=>new Response(JSON.stringify(data),{headers:{'Content-Type':
 const solution=()=>upstream({choices:[{message:{content:JSON.stringify(answer)}}]});
 const tick=()=>new Promise(resolve=>setTimeout(resolve,10));
 async function until(fn){for(let i=0;i<100;i++){if(fn())return;await tick();}throw new Error('Timed out waiting for UI state');}
-function setup({configured=true,demo=false,initialState=null,providerFetch=async()=>solution()}={}){
+function setup({configured=true,demo=false,initialState=null,cloudEnv=null,providerFetch=async()=>solution()}={}){
  const errors=[],vc=new VirtualConsole();vc.on('jsdomError',e=>errors.push(e.message));
  const dom=new JSDOM(html,{url:'https://desk.example.com/',runScripts:'outside-only',pretendToBeVisual:true,virtualConsole:vc});
  const w=dom.window,doc=w.document;
  Object.assign(w,{structuredClone,AbortController,Request,Response,TextEncoder,TextDecoder});w.scrollTo=()=>{};w.print=()=>{};
+ Object.defineProperty(w.crypto,'subtle',{value:globalThis.crypto.subtle});
  w.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};w.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};
  w.URL.createObjectURL=()=> 'blob:test';w.URL.revokeObjectURL=()=>{};
  w.localStorage.setItem(STORAGE_KEY,JSON.stringify(initialState||createInitialState(demo)));
  if(configured){w.localStorage.setItem(AI_CONFIG_KEY,JSON.stringify({profiles:[base],solveProfileId:base.id,ocrProfileId:base.id,autoOcr:false}));w.sessionStorage.setItem(AI_SESSION_KEY,JSON.stringify({[base.id]:{apiKey:fakeKey,endpoint:`openai:${base.baseUrl}`}}));}
  w.Tesseract={createWorker:async()=>({recognize:async()=>({data:{text:'解方程 x + 2 = 5。',confidence:94}}),terminate:async()=>{}})};
- w.fetch=async(url,init)=>handleAIRequest(new Request(`https://desk.example.com${url}`,{...init,headers:{...init.headers,Origin:'https://desk.example.com'}}),{fetchImpl:providerFetch});
+ w.fetch=async(url,init)=>{const request=new Request(`https://desk.example.com${url}`,{...init,headers:{...init.headers,Origin:'https://desk.example.com'}});return cloudEnv&&(url.startsWith('/api/cloud/')||url.startsWith('/api/files/'))?handleCloudRequest(request,cloudEnv):handleAIRequest(request,{fetchImpl:providerFetch});};
  w.eval(bundle.outputFiles[0].text);
  const qa=w.__qa;
  const click=s=>{const el=doc.querySelector(s);assert.ok(el,`Missing ${s}`);el.click();};
@@ -120,4 +124,54 @@ for(const [subject,question,pointId,color] of [
   app.qa.go('reports');assert.match(app.doc.querySelector('.matrix-table tbody').textContent,new RegExp(subject));
   app.qa.go('print');app.change('[data-paper="subject"]',subject);await until(()=>app.doc.querySelector('#paper-pages .a4'));assert.match(app.doc.querySelector('.paper-question').textContent,new RegExp(`〔${subject}`));assert.match(app.doc.querySelector('#paper-count').textContent,/已选 1 道题/);assert.deepEqual(app.errors,[]);
  }finally{app.close();}
+});
+
+const cloudPng=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jN1sAAAAASUVORK5CYII=','base64'));
+const cloudPhoto={download_url:'https://files.oaiusercontent.com/photo?signature=temporary',file_id:'file-cloud-ui',file_name:'原题.png'};
+const cloudQuestion={title:'细胞膜的功能',content:'细胞膜有什么功能？',subject:'生物',answer:'控制物质进出细胞。',analysis:'细胞膜具有选择透过性。',reason:null,knowledgePoints:[{name:'细胞的结构与功能'}]};
+const cloudFetch=async()=>new Response(cloudPng,{headers:{'Content-Type':'image/png'}});
+
+test('cloud capture merges with real legacy work, excludes demos, and synchronizes review progress across devices',async()=>{
+ const env=createLocalCloud({memory:true});let app;
+ try{
+  const capture=await archiveFromChatGPT(env,{photo:cloudPhoto,mistakes:[cloudQuestion]},{fetchImpl:cloudFetch});
+  const legacy=createInitialState(true),local={...structuredClone(legacy.records[0]),id:'local-real-question',demo:false};legacy.records.push(local);legacy.logs.push({id:'local-real-log',recordId:local.id,date:today(),mastered:false,stage:0,demo:false});
+  app=setup({configured:false,initialState:legacy,cloudEnv:env});await app.qa.cloud.sync();
+  assert.equal(app.qa.state.records.length,2);assert.ok(app.qa.state.records.every(r=>!r.demo));assert.ok(app.qa.state.records.some(r=>r.id===capture.records[0].id));assert.equal((await allEntities(env,'records')).length,2);assert.equal((await allEntities(env,'logs')).length,1);
+  assert.equal(app.qa.state.records.find(r=>r.id===capture.records[0].id).captureSource.needsReview,true);
+  app.qa.openRecord(local.id);app.click('#dialog [data-study]');app.click('[data-action="reveal"]');app.click('[data-grade="mastered"]');app.click('#dialog [data-action="close"]');await app.qa.cloud.sync();
+  assert.equal((await getEntity(env,'records',local.id)).payload.status,'mastered');assert.equal((await allEntities(env,'logs')).length,2);
+  const other=await archiveFromChatGPT(env,{photo:{...cloudPhoto,file_id:'file-second-device'},mistakes:[{...cloudQuestion,title:'第二张手机题图'}]},{fetchImpl:cloudFetch});await app.qa.cloud.sync();assert.ok(app.qa.state.records.some(r=>r.id===other.records[0].id));assert.equal(app.qa.cloud.label(),'云端已同步');assert.deepEqual(app.errors,[]);
+ }finally{app?.close();env.close();}
+});
+
+test('sync conflicts preserve both versions until a user explicitly resolves them',async()=>{
+ const env=createLocalCloud({memory:true});let app;
+ try{
+  const capture=await archiveFromChatGPT(env,{photo:cloudPhoto,mistakes:[cloudQuestion]},{fetchImpl:cloudFetch});const id=capture.records[0].id;
+  app=setup({configured:false,cloudEnv:env});await app.qa.cloud.sync();app.qa.state.records.find(r=>r.id===id).answer='本机修改后的答案';
+  const before=await getEntity(env,'records',id);await writeEntity(env,{kind:'records',id,payload:{...before.payload,answer:'云端较新的答案'},baseRevision:before.revision});
+  await app.qa.cloud.sync();assert.equal(app.qa.state.records.find(r=>r.id===id).answer,'本机修改后的答案');assert.equal((await getEntity(env,'records',id)).payload.answer,'云端较新的答案');
+  app.qa.go('cloud');assert.ok(app.doc.querySelector('.cloud-conflicts'));app.click('[data-cloud="remote"]');await until(()=>app.qa.state.records.find(r=>r.id===id).answer==='云端较新的答案');await app.qa.cloud.sync();assert.equal(app.qa.cloud.label(),'云端已同步');assert.deepEqual(app.errors,[]);
+ }finally{app?.close();env.close();}
+});
+
+test('offline edits remain in the local workspace and are sent when the connection returns',async()=>{
+ const env=createLocalCloud({memory:true});let app;
+ try{
+  app=setup({configured:false,cloudEnv:env});await app.qa.cloud.sync();
+  Object.defineProperty(app.w.navigator,'onLine',{value:false,configurable:true});app.click('[data-action="new"]');app.fill('#draft-content','解方程 x + 2 = 5');app.submit('#intake-form');app.fill('[data-draft="answer"]','x=3');app.submit('#intake-form');app.submit('#intake-form');const id=app.qa.state.records[0].id;
+  await app.qa.cloud.sync();assert.equal(await getEntity(env,'records',id),null);assert.ok(app.w.localStorage.getItem(STORAGE_KEY).includes(id));assert.match(app.qa.cloud.label(),/离线/);
+  Object.defineProperty(app.w.navigator,'onLine',{value:true,configurable:true});await app.qa.cloud.sync();assert.equal((await getEntity(env,'records',id)).payload.answer,'x=3');assert.equal(app.qa.cloud.label(),'云端已同步');assert.deepEqual(app.errors,[]);
+ }finally{app?.close();env.close();}
+});
+
+test('two fresh devices can initialize the same knowledge library without false conflicts',async()=>{
+ const env=createLocalCloud({memory:true});let first,second;
+ try{
+  first=setup({configured:false,cloudEnv:env});second=setup({configured:false,cloudEnv:env});
+  await Promise.all([first.qa.cloud.sync(),second.qa.cloud.sync()]);
+  assert.equal(first.qa.cloud.label(),'云端已同步');assert.equal(second.qa.cloud.label(),'云端已同步');
+  assert.equal((await allEntities(env,'knowledge')).length,createInitialState(false).knowledge.length);assert.deepEqual(first.errors,[]);assert.deepEqual(second.errors,[]);
+ }finally{first?.close();second?.close();env.close();}
 });

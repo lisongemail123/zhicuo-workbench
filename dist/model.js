@@ -73,7 +73,7 @@ export function selectPaper(state, { strategy = 'due', count = 6, subject = '全
   }
   if (strategy === 'frequent') {
     const frequencies = Object.fromEntries(REASONS.map(reason => [reason, pool.filter(r => r.reason === reason).length]));
-    pool.sort((a,b) => frequencies[b.reason]-frequencies[a.reason] || a.stage-b.stage);
+    pool.sort((a,b) => (frequencies[b.reason]||0)-(frequencies[a.reason]||0) || a.stage-b.stage);
   }
   if (strategy === 'random') {
     for (let i = pool.length-1; i > 0; i--) { const j = Math.floor(random()*(i+1)); [pool[i],pool[j]] = [pool[j],pool[i]]; }
@@ -135,6 +135,10 @@ export function sanitizeOCRSource(input) {
  if(!input||!['local','vision'].includes(input.engine))return null;
  return {engine:input.engine,model:str(input.model,160),confidence:Number.isFinite(input.confidence)?Math.max(0,Math.min(100,input.confidence)):null,recognizedAt:str(input.recognizedAt,40)};
 }
+export function sanitizeCaptureSource(input) {
+ if(!input||input.channel!=='chatgpt')return null;
+ return {channel:'chatgpt',capturedAt:str(input.capturedAt,40),needsReview:!!input.needsReview};
+}
 export function validateState(input) {
  if (!input || input.version !== VERSION || !Array.isArray(input.records) || !Array.isArray(input.knowledge) || !Array.isArray(input.logs)) throw new Error('不是有效的知错备份文件，或版本暂不兼容');
  if(input.records.length>3000 || input.knowledge.length>500 || input.logs.length>100000) throw new Error('备份数据量超出本地版本上限');
@@ -160,11 +164,11 @@ export function validateState(input) {
   learningPath(knowledge,[...ids]);
  }
  const records=input.records.map(r=>{
-  if(!r || !str(r.id,100)||!str(r.title,160)||!dateOK(r.createdAt) || !REASONS.includes(r.reason)) throw new Error('错题数据不完整或错因不属于固定分类');
+  if(!r || !str(r.id,100)||!str(r.title,160)||!dateOK(r.createdAt) || (r.reason!==null&&!REASONS.includes(r.reason))) throw new Error('错题数据不完整或错因不属于固定分类');
   if(r.nextReview && !dateOK(r.nextReview)) throw new Error('复习日期无效');
   return {id:str(r.id,100),title:str(r.title,160),content:str(r.content),subject:SUBJECTS.includes(r.subject)?r.subject:'其他',wrong:str(r.wrong),answer:str(r.answer),analysis:str(r.analysis),source:str(r.source,200),reason:r.reason,knowledgeIds:Array.isArray(r.knowledgeIds)?r.knowledgeIds.filter(id=>ids.has(id)):[],difficulty:[1,2,3].includes(r.difficulty)?r.difficulty:2,type:['选择题','填空题','解答题'].includes(r.type)?r.type:'解答题',createdAt:r.createdAt,updatedAt:dateOK(r.updatedAt)?r.updatedAt:r.createdAt,nextReview:r.nextReview||null,lastReviewed:dateOK(r.lastReviewed)?r.lastReviewed:null,status:['new','reviewing','mastered'].includes(r.status)?r.status:'new',stage:Number.isInteger(r.stage)?Math.max(0,Math.min(4,r.stage)):0,photo:typeof r.photo==='string'&&/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(r.photo)&&r.photo.length<2100000?r.photo:'',archived:!!r.archived,starred:!!r.starred,demo:!!r.demo};
  });
- records.forEach((r,i)=>{r.aiSource=sanitizeAISource(input.records[i].aiSource);r.ocrSource=sanitizeOCRSource(input.records[i].ocrSource);});
+ records.forEach((r,i)=>{r.aiSource=sanitizeAISource(input.records[i].aiSource);r.ocrSource=sanitizeOCRSource(input.records[i].ocrSource);r.captureSource=sanitizeCaptureSource(input.records[i].captureSource);if(typeof input.records[i].photo==='string'&&/^\/api\/files\/photo-[a-f0-9]{64}$/.test(input.records[i].photo))r.photo=input.records[i].photo;});
  const rids = new Set(records.map(r=>r.id));
  if(rids.size!==records.length) throw new Error('错题编号重复');
  const logs=input.logs.filter(l=>l&&rids.has(l.recordId)&&dateOK(l.date)).map(l=>({id:str(l.id,100)||uid(),recordId:l.recordId,date:l.date,mastered:!!l.mastered,stage:Math.max(0,Math.min(4,Number(l.stage)||0)),demo:!!l.demo}));
