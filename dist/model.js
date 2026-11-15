@@ -1,6 +1,7 @@
 export const VERSION = 1;
 export const STORAGE_KEY = 'zhicuo.workbench.v1';
-export const SUBJECTS = ['数学', '物理', '英语', '化学', '语文', '其他'];
+export const SUBJECTS = ['数学', '物理', '英语', '化学', '生物', '语文', '其他'];
+export const KNOWLEDGE_LIBRARY_VERSION = 2;
 export const REASONS = ['概念不清', '知识遗忘', '审题遗漏', '计算失误', '方法不当', '推理不严', '表达不规范', '时间不足'];
 export const INTERVALS = [1, 2, 4, 7];
 export const uid = () => globalThis.crypto?.randomUUID?.() || `id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -92,12 +93,18 @@ export function builtInKnowledge() {
   k('english-tense','现在完成时','英语',[],['have','has','since','for ','完成时','过去式'], '结构为 have/has + 过去分词。强调过去动作对现在的影响，或从过去持续到现在的状态。since 后接时间起点，for 后接时间段；持续性语境需使用延续性动词。','She has lived here since 2020. / for six years.','填空：He ___ (live) in Shanghai since 2021.','has lived','since 2021 表示从过去到现在的持续状态，应使用现在完成时。主语 He 为第三人称单数，助动词用 has。'),
   k('english-relative','定语从句','英语',[],['定语从句','which','who','that','whose'], '定语从句修饰名词或代词。关系词既连接从句，也在从句中作成分。先判断先行词指人还是物，再判断从句缺少主语、宾语还是定语。','The book that I bought is useful. 先行词 book 指物，that 在从句中作宾语。','选择关系词：The girl ___ father is a doctor is my classmate.','whose','从句中 father 前缺少表示所属关系的定语，whose father 意为“她的父亲”。who 与 that 不能直接表达这种所属关系。'),
   k('chemistry-mass','质量守恒定律','化学',[],['质量守恒','配平','化学方程式','反应'], '化学反应前后原子的种类、数目不变，因而反应物总质量与生成物总质量相等。配平时只能调整化学式前的系数，不能改变下标。','2H₂ + O₂ → 2H₂O。两边氢原子均为 4 个，氧原子均为 2 个。','配平：__ Fe + __ O₂ → __ Fe₃O₄。','3 Fe + 2 O₂ → Fe₃O₄','以 Fe₃O₄ 为基准，右侧含 3 个 Fe、4 个 O，左侧需要 3 Fe 和 2 O₂。系数为 3:2:1。'),
-  k('chemistry-solution','溶液质量分数','化学',['chemistry-mass'],['溶液','质量分数','溶质','稀释'], '溶质质量分数 = 溶质质量 / 溶液质量 × 100%。溶液质量包含溶质与溶剂。稀释时若无反应、无损失，溶质质量保持不变。','10 g 盐溶于 90 g 水，质量分数为 10/(10+90)=10%。','将 50 g、质量分数为 20% 的盐水加水稀释至 10%，应加水多少克？','50 g','原溶质质量为 50×20%=10 g。稀释后溶液质量为 10/10%=100 g，因此加水质量为 100−50=50 g。')
+  k('chemistry-solution','溶液质量分数','化学',['chemistry-mass'],['溶液','质量分数','溶质','稀释'], '溶质质量分数 = 溶质质量 / 溶液质量 × 100%。溶液质量包含溶质与溶剂。稀释时若无反应、无损失，溶质质量保持不变。','10 g 盐溶于 90 g 水，质量分数为 10/(10+90)=10%。','将 50 g、质量分数为 20% 的盐水加水稀释至 10%，应加水多少克？','50 g','原溶质质量为 50×20%=10 g。稀释后溶液质量为 10/10%=100 g，因此加水质量为 100−50=50 g。'),
+  k('biology-cell','细胞的结构与功能','生物',[],['细胞','细胞膜','细胞核','细胞壁','液泡'], '细胞膜控制物质进出，细胞质是多种生命活动进行的场所，细胞核含有遗传物质。植物细胞通常有细胞壁，成熟植物细胞常有大液泡；绿色部位的细胞可含叶绿体，不能据此认为所有植物细胞都有叶绿体。','细胞壁主要起支持和保护作用，控制物质进出的主要结构是细胞膜。','植物细胞中，主要控制物质进出的结构是什么？它与细胞壁的主要功能有何不同？','细胞膜；细胞壁主要起支持和保护作用。','细胞膜具有选择透过性，能够调节物质进出；细胞壁的主要作用是支持和保护，不能把二者的功能混淆。'),
+  k('biology-photosynthesis','光合作用','生物',['biology-cell'],['光合作用','叶绿体','叶绿素','淀粉','遮光'], '绿色植物在光照下，利用叶绿体将二氧化碳和水合成有机物并释放氧气，把光能转化为储存在有机物中的化学能。区分原料、产物、条件与场所；光是条件，叶绿体是主要场所。','检测叶片中的淀粉时，先用酒精脱去叶绿素，再滴加碘液；含淀粉的部分变蓝。','植物先经充分暗处理，再将同一叶片的一部分遮光，光照一段时间后脱色并滴加碘液。遮光与未遮光部分的颜色有何不同？','未遮光部分变蓝；遮光部分不变蓝。','充分暗处理先消耗原有淀粉。光照后，未遮光部分通过光合作用产生淀粉，遇碘变蓝；遮光部分缺少光照，不产生相应淀粉。'),
+  k('biology-respiration','植物的呼吸作用','生物',['biology-cell'],['呼吸作用','有氧呼吸','萌发','种子','二氧化碳'], '植物的有氧呼吸利用氧气分解有机物，生成二氧化碳和水并释放能量。活细胞白天、夜晚都进行呼吸作用；光照不是呼吸作用的必要条件，不要把呼吸作用与光合作用混为一谈。','萌发种子的呼吸作用较旺盛，释放的热量可使实验装置中的温度升高。','在供氧充足的条件下，萌发种子使装置温度升高，排出的气体使澄清石灰水变浑浊。这分别说明了什么？','呼吸作用释放能量，并产生二氧化碳。','温度升高说明一部分能量以热的形式释放；石灰水变浑浊是二氧化碳的检验现象。实验现象应分别对应结论。'),
+  k('chinese-rhetoric','修辞手法','语文',[],['修辞','比喻','拟人','排比','夸张'], '判断修辞先看表达关系，而不是只找关键词。比喻通常用不同类事物之间的相似点作比较；拟人把事物当作人来写；赏析时还要说明其在具体语境中的表达效果。','“弯弯的月亮像一只小船”是比喻；“他好像刚睡醒”中的“好像”表示推测，不能仅凭这个词判定为比喻。','判断哪句使用了比喻，并说明理由：A. 他好像刚睡醒。 B. 弯弯的月亮像一只小船。 C. 她像姐姐一样高。','B。把月亮比作小船，突出二者弯曲形状的相似。','B 的本体是月亮、喻体是小船，属于不同类事物的相似比较。A 表示推测，C 是同类人物之间的比较，均不构成这里所说的比喻。'),
+  k('chinese-reading','现代文阅读','语文',['chinese-rhetoric'],['现代文','阅读','概括','人物特点','描写','赏析'], '先审清题目的对象和范围，再在原文中寻找依据，最后分要点作答。概括人物特点要结合语言、动作等具体描写；赏析句子可从表达方式、内容及情感效果展开，避免脱离文本套用结论。','“他把伞往同伴那边挪了挪，自己半边肩膀湿透了”可作为关心同伴的动作依据。','阅读：“雨越下越急，他把伞往同伴那边挪了挪，自己半边肩膀湿透了。”概括人物特点，并写出依据。','他关心、体贴同伴；依据是把伞移向同伴，自己却被雨淋湿。','先找动作“把伞往同伴那边挪”，再结合结果“自己半边肩膀湿透”，由行为与结果概括体贴他人的特点。答案应同时包含特点和文本依据。'),
+  k('chinese-classical','文言文阅读','语文',[],['文言文','文言','实词','虚词','翻译','句式','学而时习之'], '结合上下文判断词义、指代与句式，再进行翻译。翻译时保留必要的人名地名，落实关键词，按现代汉语习惯调整语序并补足省略成分，不机械地用某个常见义替代全部语境。','“学而时习之”中的“之”是代词，指所学的内容。','“学而时习之”中的“之”指代什么？翻译时为什么不能把它直接解释成“的”？','指代所学的知识或内容；这里的“之”是代词，不是表示修饰关系的结构助词。','先分析语境和语法位置：“习”后需要指代所学内容的成分，因此“之”指所学的内容。文言虚词有不同用法，不能只套用一个固定释义。')
  ];
 }
 export function createInitialState(withDemo = true, date = today()) {
  const knowledge = builtInKnowledge();
- const state = { version: VERSION, records: [], knowledge, logs: [], prefs: { dailyGoal: 6, name: '我的学习空间' } };
+ const state = { version: VERSION, knowledgeLibraryVersion: KNOWLEDGE_LIBRARY_VERSION, records: [], knowledge, logs: [], prefs: { dailyGoal: 6, name: '我的学习空间' } };
  if (!withDemo) return state;
  const examples = [
   ['二次函数的顶点与最值','数学','已知二次函数 y = x² − 4x + 3，求抛物线的顶点坐标及函数最小值。','顶点为 (−2, −1)，最小值为 −1。','顶点为 (2, −1)，最小值为 −1。','配方得到 y = (x−2)²−1；括号内为 x−2，对应顶点横坐标为 2。不要把括号内的符号直接作为坐标。','概念不清',['math-quadratic'], '八年级数学 · 第六章单元练习'],
@@ -139,6 +146,19 @@ export function validateState(input) {
  if(ids.size!==knowledge.length) throw new Error('知识点编号重复');
  knowledge.forEach(k=>{if(k.prerequisites.some(id=>!ids.has(id))) throw new Error('知识点前置关系不完整');});
  learningPath(knowledge,[...ids]);
+ // Upgrade the two new subject libraries once, preserving edited/user-created nodes and record IDs.
+ if((Number(input.knowledgeLibraryVersion)||1)<KNOWLEDGE_LIBRARY_VERSION){
+  const additions=builtInKnowledge().filter(k=>['生物','语文'].includes(k.subject));
+  const aliases=new Map(),appended=[];
+  for(const node of additions){
+   const existing=knowledge.find(k=>k.id===node.id||(k.subject===node.subject&&k.name===node.name));
+   if(existing){aliases.set(node.id,existing.id);continue;}
+   if(knowledge.length>=500)continue;
+   const copy={...node,prerequisites:[]};knowledge.push(copy);ids.add(copy.id);aliases.set(node.id,copy.id);appended.push([copy,node.prerequisites]);
+  }
+  for(const [copy,prerequisites] of appended)copy.prerequisites=prerequisites.map(id=>aliases.get(id)).filter(Boolean);
+  learningPath(knowledge,[...ids]);
+ }
  const records=input.records.map(r=>{
   if(!r || !str(r.id,100)||!str(r.title,160)||!dateOK(r.createdAt) || !REASONS.includes(r.reason)) throw new Error('错题数据不完整或错因不属于固定分类');
   if(r.nextReview && !dateOK(r.nextReview)) throw new Error('复习日期无效');
@@ -148,5 +168,5 @@ export function validateState(input) {
  const rids = new Set(records.map(r=>r.id));
  if(rids.size!==records.length) throw new Error('错题编号重复');
  const logs=input.logs.filter(l=>l&&rids.has(l.recordId)&&dateOK(l.date)).map(l=>({id:str(l.id,100)||uid(),recordId:l.recordId,date:l.date,mastered:!!l.mastered,stage:Math.max(0,Math.min(4,Number(l.stage)||0)),demo:!!l.demo}));
- return {version:VERSION,records,knowledge,logs,prefs:{name:str(input.prefs?.name,30)||'我的学习空间',dailyGoal:Math.max(1,Math.min(50,Number(input.prefs?.dailyGoal)||6))}};
+ return {version:VERSION,knowledgeLibraryVersion:KNOWLEDGE_LIBRARY_VERSION,records,knowledge,logs,prefs:{name:str(input.prefs?.name,30)||'我的学习空间',dailyGoal:Math.max(1,Math.min(50,Number(input.prefs?.dailyGoal)||6))}};
 }

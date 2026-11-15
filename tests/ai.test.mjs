@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeEndpoint,normalizeAIConfig,normalizeProfile,parseAIResult,extractModelText,attachAIKnowledge,recognizeLocal,requestAI } from '../dist/ai.js';
 import { createInitialState,validateState } from '../dist/model.js';
-import { handleAIRequest,buildUpstreamRequest } from '../server/gateway.js';
+import { handleAIRequest,buildUpstreamRequest,OCR_SYSTEM,SOLVE_SYSTEM } from '../server/gateway.js';
 
 const profile={id:'p1',provider:'custom',label:'测试助教',protocol:'openai',baseUrl:'https://api.example.com/v1',model:'test-model',vision:true,timeout:15};
 const fakeKey='test-key-not-a-real-credential';
@@ -81,4 +81,11 @@ test('client allows model discovery before choosing a model and surfaces gateway
  const fake=async(url,init)=>{assert.equal(url,'/api/ai');assert.equal(JSON.parse(init.body).profile.model,'models');return upstreamJSON({models:['m']});};
  assert.deepEqual((await requestAI({...profile,model:''},fakeKey,'models',{},undefined,fake)).models,['m']);
  await assert.rejects(requestAI(profile,fakeKey,'test',{},undefined,async()=>new Response('{"error":"额度不足"}',{status:429})),/额度/);
+});
+test('biology and Chinese classifications survive OCR and AI result normalization',()=>{
+ for(const subject of ['生物','语文']){
+  assert.equal(parseAIResult(JSON.stringify({...solution,subject})).subject,subject);
+  assert.equal(parseAIResult(JSON.stringify({text:'该学科的原题内容',subject}),'ocr').subject,subject);
+  assert.ok(OCR_SYSTEM.includes(subject));assert.ok(SOLVE_SYSTEM.includes(subject));
+ }
 });

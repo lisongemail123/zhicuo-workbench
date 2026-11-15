@@ -19,14 +19,14 @@ const upstream=data=>new Response(JSON.stringify(data),{headers:{'Content-Type':
 const solution=()=>upstream({choices:[{message:{content:JSON.stringify(answer)}}]});
 const tick=()=>new Promise(resolve=>setTimeout(resolve,10));
 async function until(fn){for(let i=0;i<100;i++){if(fn())return;await tick();}throw new Error('Timed out waiting for UI state');}
-function setup({configured=true,demo=false,providerFetch=async()=>solution()}={}){
+function setup({configured=true,demo=false,initialState=null,providerFetch=async()=>solution()}={}){
  const errors=[],vc=new VirtualConsole();vc.on('jsdomError',e=>errors.push(e.message));
  const dom=new JSDOM(html,{url:'https://desk.example.com/',runScripts:'outside-only',pretendToBeVisual:true,virtualConsole:vc});
  const w=dom.window,doc=w.document;
  Object.assign(w,{structuredClone,AbortController,Request,Response,TextEncoder,TextDecoder});w.scrollTo=()=>{};w.print=()=>{};
  w.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};w.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};
  w.URL.createObjectURL=()=> 'blob:test';w.URL.revokeObjectURL=()=>{};
- w.localStorage.setItem(STORAGE_KEY,JSON.stringify(createInitialState(demo)));
+ w.localStorage.setItem(STORAGE_KEY,JSON.stringify(initialState||createInitialState(demo)));
  if(configured){w.localStorage.setItem(AI_CONFIG_KEY,JSON.stringify({profiles:[base],solveProfileId:base.id,ocrProfileId:base.id,autoOcr:false}));w.sessionStorage.setItem(AI_SESSION_KEY,JSON.stringify({[base.id]:{apiKey:fakeKey,endpoint:`openai:${base.baseUrl}`}}));}
  w.Tesseract={createWorker:async()=>({recognize:async()=>({data:{text:'解方程 x + 2 = 5。',confidence:94}}),terminate:async()=>{}})};
  w.fetch=async(url,init)=>handleAIRequest(new Request(`https://desk.example.com${url}`,{...init,headers:{...init.headers,Origin:'https://desk.example.com'}}),{fetchImpl:providerFetch});
@@ -101,5 +101,23 @@ test('original learning, selection, paper, recycling and report routes remain fu
   app.change('[data-select="demo-1"]',true);app.click('[data-action="print-selected"]');await until(()=>app.doc.querySelector('#paper-pages .a4'));assert.match(app.doc.querySelector('#paper-count').textContent,/已选 1 道题/);assert.equal(app.doc.querySelectorAll('.paper-question').length,2);
   app.qa.openRecord('demo-1');app.click('#dialog [data-study]');app.click('[data-action="reveal"]');app.click('[data-grade="mastered"]');assert.equal(app.qa.state.records[0].status,'mastered');app.click('#dialog [data-action="close"]');
   app.qa.openRecord('demo-1');app.click('#dialog [data-delete]');app.click('#dialog [data-action="confirm"]');app.qa.go('trash');app.click('[data-restore="demo-1"]');assert.equal(app.qa.state.records[0].archived,false);assert.deepEqual(app.errors,[]);
+ }finally{app.close();}
+});
+for(const [subject,question,pointId,color] of [
+ ['生物','细胞膜的主要功能是什么？','biology-cell','biology'],
+ ['语文','“弯弯的月亮像一只小船”运用了什么修辞手法？','chinese-rhetoric','chinese']
+])test(`${subject} is available with old data through navigation, intake, knowledge, filtering, reports and printing`,async()=>{
+ const legacy=createInitialState(false);delete legacy.knowledgeLibraryVersion;legacy.knowledge=legacy.knowledge.filter(k=>!['生物','语文'].includes(k.subject));
+ const app=setup({configured:false,initialState:legacy});
+ try{
+  assert.ok(app.doc.querySelector(`.subject-nav [data-subject="${subject}"]`));
+  app.qa.go('notebook');assert.ok(app.doc.querySelector(`#main .subject-tabs [data-subject="${subject}"]`));
+  app.qa.go('knowledge');app.click(`[data-knowledge-subject="${subject}"]`);assert.ok(app.doc.querySelector(`[data-knowledge="${pointId}"]`));
+  app.click('[data-action="new"]');app.change('[data-draft="subject"]',subject);app.fill('#draft-content',question);app.submit('#intake-form');
+  assert.ok(app.doc.querySelector(`[data-toggle-knowledge="${pointId}"].picked`));app.fill('[data-draft="answer"]',subject==='生物'?'控制物质进出细胞。':'比喻。');app.submit('#intake-form');app.submit('#intake-form');
+  const record=app.qa.state.records[0];assert.equal(record.subject,subject);assert.ok(record.knowledgeIds.includes(pointId));
+  app.click(`.subject-nav [data-subject="${subject}"]`);assert.equal(app.doc.querySelectorAll('.record-table tbody tr').length,1);assert.ok(app.doc.querySelector(`.subject-icon.${color}`));
+  app.qa.go('reports');assert.match(app.doc.querySelector('.matrix-table tbody').textContent,new RegExp(subject));
+  app.qa.go('print');app.change('[data-paper="subject"]',subject);await until(()=>app.doc.querySelector('#paper-pages .a4'));assert.match(app.doc.querySelector('.paper-question').textContent,new RegExp(`〔${subject}`));assert.match(app.doc.querySelector('#paper-count').textContent,/已选 1 道题/);assert.deepEqual(app.errors,[]);
  }finally{app.close();}
 });

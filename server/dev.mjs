@@ -16,7 +16,7 @@ export function createAppServer() {
         const request=new Request(requestUrl,{method:req.method,headers:req.headers,body:['GET','HEAD'].includes(req.method)?undefined:req,duplex:'half',signal:controller.signal});
         const response=await handleAIRequest(request);res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));return;
       }
-      if(url.pathname==='/api/health'){res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({ok:true,version:'2.0.0',ai:true}));return;}
+      if(url.pathname==='/api/health'){res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({ok:true,version:'2.0.1',ai:true}));return;}
       if(!['GET','HEAD'].includes(req.method)){res.writeHead(405);res.end('Method not allowed');return;}
       const name=decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname);
       const file=path.resolve(root,`.${name}`);

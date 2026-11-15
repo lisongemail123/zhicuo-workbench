@@ -65,3 +65,19 @@ test('invalid backups are rejected before replacement; unsafe image sources are 
  const s=createInitialState();s.records[0].photo='data:image/svg+xml,<svg onload=alert(1)>';
  assert.equal(validateState(s).records[0].photo,'');
 });
+test('legacy subject library upgrade preserves progress and custom notes, remaps prerequisites and runs once',()=>{
+ const legacy=createInitialState(true,'2026-11-15');delete legacy.knowledgeLibraryVersion;
+ legacy.knowledge=legacy.knowledge.filter(k=>!['生物','语文'].includes(k.subject));
+ legacy.knowledge[0].explanation='我自己修改的数学讲解';
+ legacy.knowledge.push({id:'my-cell-notes',name:'细胞的结构与功能',subject:'生物',prerequisites:[],keywords:['细胞'],explanation:'我的细胞笔记',example:'',exercise:'',answer:'',solution:'',builtin:false});
+ const before=JSON.stringify(legacy),record=structuredClone(legacy.records[0]);
+ const upgraded=validateState(legacy);
+ assert.equal(JSON.stringify(legacy),before);assert.equal(upgraded.records.length,legacy.records.length);assert.deepEqual(upgraded.logs,legacy.logs);
+ for(const field of ['id','title','subject','status','stage','nextReview'])assert.equal(upgraded.records[0][field],record[field]);
+ assert.equal(upgraded.knowledge[0].explanation,'我自己修改的数学讲解');assert.equal(upgraded.knowledge.find(k=>k.id==='my-cell-notes').explanation,'我的细胞笔记');
+ assert.equal(upgraded.knowledge.filter(k=>k.name==='细胞的结构与功能'&&k.subject==='生物').length,1);
+ assert.deepEqual(upgraded.knowledge.find(k=>k.id==='biology-photosynthesis').prerequisites,['my-cell-notes']);
+ assert.ok(upgraded.knowledge.some(k=>k.subject==='语文'));
+ const curated=structuredClone(upgraded);curated.knowledge=curated.knowledge.filter(k=>k.id!=='biology-respiration');
+ assert.equal(validateState(curated).knowledge.some(k=>k.id==='biology-respiration'),false);
+});
