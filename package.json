@@ -1,1 +1,22 @@
-{"name":"zhicuo-study-workbench","version":"1.0.0","private":true,"type":"module","scripts":{"test":"node --test tests/model.test.mjs","check":"node --check dist/app.js && node --check dist/model.js"}}
+{
+  "name": "zhicuo-study-workbench",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server/dev.mjs",
+    "dev": "node server/dev.mjs",
+    "check": "node scripts/check.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "vendor:ocr": "node scripts/vendor-ocr.mjs",
+    "build": "node scripts/build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "jsdom": "31.0.1",
+    "tesseract.js": "7.0.0"
+  },
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  }
+}

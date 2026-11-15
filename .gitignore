@@ -8,3 +8,4 @@ backups/
 !.env.example
 *.tar.gz
 .DS_Store
+dist/server/

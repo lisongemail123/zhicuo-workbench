@@ -120,6 +120,14 @@ export function createInitialState(withDemo = true, date = today()) {
 }
 const dateOK = d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(`${d}T12:00:00Z`)) && new Date(`${d}T12:00:00Z`).toISOString().slice(0,10) === d;
 const str = (s,max=30000) => typeof s === 'string' ? s.slice(0,max) : '';
+export function sanitizeAISource(input) {
+ if(!input||!str(input.model,160))return null;
+ return {model:str(input.model,160),provider:str(input.provider,40),label:str(input.label,80),generatedAt:str(input.generatedAt,40),reviewed:!!input.reviewed};
+}
+export function sanitizeOCRSource(input) {
+ if(!input||!['local','vision'].includes(input.engine))return null;
+ return {engine:input.engine,model:str(input.model,160),confidence:Number.isFinite(input.confidence)?Math.max(0,Math.min(100,input.confidence)):null,recognizedAt:str(input.recognizedAt,40)};
+}
 export function validateState(input) {
  if (!input || input.version !== VERSION || !Array.isArray(input.records) || !Array.isArray(input.knowledge) || !Array.isArray(input.logs)) throw new Error('不是有效的知错备份文件，或版本暂不兼容');
  if(input.records.length>3000 || input.knowledge.length>500 || input.logs.length>100000) throw new Error('备份数据量超出本地版本上限');
@@ -136,6 +144,7 @@ export function validateState(input) {
   if(r.nextReview && !dateOK(r.nextReview)) throw new Error('复习日期无效');
   return {id:str(r.id,100),title:str(r.title,160),content:str(r.content),subject:SUBJECTS.includes(r.subject)?r.subject:'其他',wrong:str(r.wrong),answer:str(r.answer),analysis:str(r.analysis),source:str(r.source,200),reason:r.reason,knowledgeIds:Array.isArray(r.knowledgeIds)?r.knowledgeIds.filter(id=>ids.has(id)):[],difficulty:[1,2,3].includes(r.difficulty)?r.difficulty:2,type:['选择题','填空题','解答题'].includes(r.type)?r.type:'解答题',createdAt:r.createdAt,updatedAt:dateOK(r.updatedAt)?r.updatedAt:r.createdAt,nextReview:r.nextReview||null,lastReviewed:dateOK(r.lastReviewed)?r.lastReviewed:null,status:['new','reviewing','mastered'].includes(r.status)?r.status:'new',stage:Number.isInteger(r.stage)?Math.max(0,Math.min(4,r.stage)):0,photo:typeof r.photo==='string'&&/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(r.photo)&&r.photo.length<2100000?r.photo:'',archived:!!r.archived,starred:!!r.starred,demo:!!r.demo};
  });
+ records.forEach((r,i)=>{r.aiSource=sanitizeAISource(input.records[i].aiSource);r.ocrSource=sanitizeOCRSource(input.records[i].ocrSource);});
  const rids = new Set(records.map(r=>r.id));
  if(rids.size!==records.length) throw new Error('错题编号重复');
  const logs=input.logs.filter(l=>l&&rids.has(l.recordId)&&dateOK(l.date)).map(l=>({id:str(l.id,100)||uid(),recordId:l.recordId,date:l.date,mastered:!!l.mastered,stage:Math.max(0,Math.min(4,Number(l.stage)||0)),demo:!!l.demo}));
