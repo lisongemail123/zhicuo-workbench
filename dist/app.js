@@ -1,3 +1,4 @@
+import { typesetMath,attachMathPreviews,splitStudyText } from './math.js';
 import { createAccountUI } from './accounts.js';
 import { scopedKey,photoURL } from './account-context.js';
 import { AI_CONFIG_KEY,AI_SESSION_KEY,normalizeAIConfig } from './ai.js';
@@ -79,6 +80,7 @@ function go(next,subject) {
 }
 function modal(html,wide=false) {
  const d=$('#dialog');d.className=wide?'wide':'';d.innerHTML=`<button class="modal-close icon-btn" data-action="close" aria-label="关闭">${icon('close')}</button>${html}`;
+ typesetMath(d);attachMathPreviews(d);
  if(!d.open)d.showModal();d.scrollTop=0;
 }
 function closeModal(){ $('#dialog').close(); }
@@ -109,7 +111,8 @@ function render() {
 function renderMain() {
  const pages={dashboard:dashboard,notebook:notebook,intake:intake,learning:learning,knowledge:knowledgePage,reports:reports,print:printPage,ai:()=>ai.page(),cloud:()=>cloud.page(),account:()=>account.page(),admin:()=>account.adminPage(),trash:trashPage};
  $('#main').innerHTML=(account.isReadonly()&&!['account','admin'].includes(view)?'<div class="readonly-banner">你是此共享空间的只读成员，可以查看错题、解析和报告。编辑或记录复习结果需由拥有者调整权限。</div>':'')+pages[view]();
- if(view==='print') requestAnimationFrame(buildPaper);
+ typesetMath($('#main'));attachMathPreviews($('#main'));
+ if(view==='print') requestAnimationFrame(()=>{buildPaper();document.fonts?.ready.then(()=>{if(view==='print')buildPaper(false);});});
 }
 function pageHeading(eyebrow,title,description,actions='') {
  return `<div class="page-heading"><div><div class="eyebrow">${eyebrow}</div><h1>${title}</h1><p>${description}</p></div><div class="page-actions">${actions}</div></div>`;
@@ -272,7 +275,7 @@ function buildPaper(reselect=true) {
   records.forEach((r,i)=>{
    const heading=`${i+1}. ${r.title} 〔${r.subject} · ${r.type}〕`;
    const text=answer?`参考答案：${r.answer||'尚未填写，请自行补充。'}\n\n解析：${r.analysis||'尚未填写。'}\n\n主要错因：${reasonLabel(r)}\n知识点：${r.knowledgeIds.map(id=>state.knowledge.find(k=>k.id===id)?.name||'').join('、')}`:r.content;
-   const pieces=(text.match(/[\s\S]{1,260}/g)||['']).map(x=>({text:x}));
+   const pieces=splitStudyText(text).map(x=>({text:x}));
    if(!answer&&r.photo)pieces.push({photo:r.photo});
    let block=null;
    function makeBlock(continuation=false){block=document.createElement('article');block.className='paper-question';block.innerHTML=`<h3>${esc(heading)}${continuation?'（续）':''}</h3>`;body.append(block);}
@@ -280,7 +283,7 @@ function buildPaper(reselect=true) {
    makeBlock();
    for(const piece of pieces){
     const part=document.createElement(piece.photo?'img':'p');
-    if(piece.photo){part.src=piece.photo;part.alt='原题照片';}else {part.textContent=piece.text;part.className='paper-question-text';}
+    if(piece.photo){part.src=piece.photo;part.alt='原题照片';}else {part.textContent=piece.text;part.className='paper-question-text';typesetMath(part);}
     block.append(part);
     if(body.scrollHeight>body.clientHeight+1){part.remove();if(block.children.length===1)block.remove();body=newPage(answer);count=0;makeBlock(true);block.append(part);}
    }

@@ -39,7 +39,7 @@ export async function handleMCP(request,env,options={}){
  const id=body?.id??null,respond=result=>Response.json({jsonrpc:'2.0',id,result},{headers:{'Cache-Control':'no-store'}});
  if(body.method==='notifications/initialized')return new Response(null,{status:202});
  if(body.method==='server/discover')return respond({supportedVersions:['2026-07-28'],capabilities:{tools:{}}});
- if(body.method==='initialize')return respond({protocolVersion:body.params?.protocolVersion==='2026-07-28'?'2026-07-28':'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'知错 · 拍照归档',version:'4.0.0'},instructions:'用户在知错对话中发来题目照片时，识别题干、解题、按学科/知识点/错因分类，并调用 archive_mistakes 保存原图和结构化结果。不能确定的内容标为待核对，不编造学生原始错解。'});
+ if(body.method==='initialize')return respond({protocolVersion:body.params?.protocolVersion==='2026-07-28'?'2026-07-28':'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'知错 · 拍照归档',version:'4.0.1'},instructions:'数学公式用 LaTeX，行内使用 \\(…\\)，独立公式使用 \\[ … \\]，说明文字放在公式外。用户在知错对话中发来题目照片时，识别题干、解题、按学科/知识点/错因分类，并调用 archive_mistakes 保存原图和结构化结果。不能确定的内容标为待核对，不编造学生原始错解。'});
  if(body.method==='ping')return respond({});
  if(body.method==='tools/list')return respond({tools:MCP_TOOLS});
  if(body.method==='tools/call'){

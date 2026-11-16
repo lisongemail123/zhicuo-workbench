@@ -8,3 +8,5 @@ Official implementation references: [Tesseract.js API](https://github.com/naptha
 
 - **Drizzle ORM / Drizzle Kit** are development dependencies for schema definitions and immutable SQL migration generation. Production uses D1 prepared statements. The local-only adapter uses Node.js SQLite.
 - ChatGPT file inputs follow the [Plugins file parameter reference](https://developers.openai.com/plugins/reference#file-apis); connection availability follows [Connected apps in ChatGPT](https://help.openai.com/en/articles/11487775-connected-apps-in-chatgpt).
+
+- **KaTeX 0.19.1** — MIT. The browser module, stylesheet, WOFF2 fonts and license are vendored in `dist/vendor/katex/`. Regenerate with `npm run vendor:math` after `npm ci`. Mathematical content is rendered with `trust: false`, a bounded expansion count and escaped plain-text fallback. [Official documentation](https://katex.org/docs/api.html).

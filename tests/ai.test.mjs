@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeEndpoint,normalizeAIConfig,normalizeProfile,parseAIResult,extractModelText,attachAIKnowledge,recognizeLocal,requestAI } from '../dist/ai.js';
 import { createInitialState,validateState } from '../dist/model.js';
-import { handleAIRequest,buildUpstreamRequest,OCR_SYSTEM,SOLVE_SYSTEM } from '../server/gateway.js';
+import { handleAIRequest,buildUpstreamRequest,OCR_SYSTEM,SOLVE_SYSTEM,normalizeModelList } from '../server/gateway.js';
 
 const profile={id:'p1',provider:'custom',label:'测试助教',protocol:'openai',baseUrl:'https://api.example.com/v1',model:'test-model',vision:true,timeout:15};
 const fakeKey='test-key-not-a-real-credential';
@@ -10,6 +10,12 @@ const photo='data:image/png;base64,aGVsbG8=';
 const solution={title:'解一元一次方程',subject:'数学',type:'解答题',answer:'x = 3',analysis:'1. 两边同时减去 2。\n2. 得 x = 3，代回验证。',reason:'计算失误',knowledgePoints:[{name:'一元一次方程',explanation:'用等式的性质求未知数。',prerequisites:[]}]};
 function request(body={},headers={}){return new Request('https://desk.example.com/api/ai',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://desk.example.com',...headers},body:JSON.stringify({profile,apiKey:fakeKey,task:'solve',content:'解方程 x + 2 = 5',...body})});}
 const upstreamJSON=data=>new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}});
+
+test('model discovery accepts common provider list formats and rejects a successful HTTP response without selectable models',async()=>{
+ for(const data of [{data:[{id:'a'},{id:'b'},{id:'a'}]},{models:[{name:'a'},{model:'b'}]},{data:{models:['a','b']}},['a',' b ','']])assert.deepEqual(normalizeModelList(data),['a','b']);
+ assert.deepEqual(normalizeModelList({data:[{},null,{id:' '},{id:'\n'},{id:'x'.repeat(161)}]}),[]);
+ const response=await handleAIRequest(request({task:'models'}),{fetchImpl:async()=>upstreamJSON({data:[]})});assert.equal(response.status,502);assert.match((await response.json()).error,/未返回可选择的模型/);
+});
 
 test('configuration strips credentials and normalizes known endpoint suffixes',()=>{
  const result=normalizeAIConfig({profiles:[{...profile,apiKey:fakeKey}],apiKey:fakeKey,solveProfileId:'p1'});

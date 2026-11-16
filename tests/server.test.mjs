@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAppServer } from '../server/dev.mjs';
 import { createLocalCloud } from '../server/local-cloud.mjs';
+import { readFile } from 'node:fs/promises';
 
 test('Node server serves application modules and the AI gateway without exposing generated server code',async()=>{
  const cloud=createLocalCloud({memory:true}),server=createAppServer({cloudEnv:cloud});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
@@ -9,6 +10,8 @@ test('Node server serves application modules and the AI gateway without exposing
  try{
   let response=await fetch(origin);assert.equal(response.status,200);assert.match(await response.text(),/ai\.css/);
   response=await fetch(origin+'/ai.js');assert.match(response.headers.get('content-type'),/javascript/);assert.match(await response.text(),/recognizeLocal/);
+  response=await fetch(origin+'/vendor/katex/katex.mjs');assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/javascript/);
+  response=await fetch(origin+'/vendor/katex/fonts/KaTeX_Main-Regular.woff2');assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'font/woff2');assert.deepEqual(Buffer.from(await response.arrayBuffer()),await readFile(new URL('../dist/vendor/katex/fonts/KaTeX_Main-Regular.woff2',import.meta.url)));
   response=await fetch(origin+'/api/health');assert.equal((await response.json()).ai,true);
   response=await fetch(origin+'/api/ai');assert.equal(response.status,405);
   response=await fetch(origin+'/api/auth/me',{headers:{'oai-authenticated-user-id':'forged-owner','oai-authenticated-user-email':'owner@example.com'}});assert.equal((await response.json()).authenticated,false);

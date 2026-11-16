@@ -5,7 +5,7 @@ import { uid, SUBJECTS, REASONS } from './model.js';
 export function createAIWorkspace(deps) {
   const {getState,getDraft,saveState,render,modal,closeModal,toast,navigate,icon,esc,openRecord,confirmDialog}=deps;
   const configKey=scopedKey(AI_CONFIG_KEY),secretKey=scopedKey(AI_SESSION_KEY);
-  let config,keys={},editingId=null,modelOptions=[],pending=null,job=null;
+  let config,keys={},editingId=null,modelOptions=[],pending=null,job=null,modelRequest=0;
   const statuses=new Map();
   try{config=normalizeAIConfig(JSON.parse(localStorage.getItem(configKey)||'{}'));}catch{config=normalizeAIConfig();}
   try{const stored=JSON.parse(sessionStorage.getItem(secretKey)||'{}');for(const [id,k] of Object.entries(stored))if(k&&typeof k.apiKey==='string'&&k.apiKey.length<=2000&&typeof k.endpoint==='string')keys[id]=k;}catch{}
@@ -24,9 +24,9 @@ export function createAIWorkspace(deps) {
     <div class="ai-profile-grid">${config.profiles.map(p=>`<section class="card ai-profile"><div class="ai-profile-heading"><span class="ai-provider-mark">${icon('spark')}</span><div><h3>${esc(p.label)}</h3><small>${esc(providerName(p.provider))} · ${p.protocol==='anthropic'?'Anthropic Messages':'OpenAI 兼容'}</small></div><button class="icon-btn" data-ai="edit" data-id="${esc(p.id)}" aria-label="编辑${esc(p.label)}">${icon('edit')}</button></div><div class="ai-model-name">${esc(p.model)}</div><p class="ai-endpoint">${esc(p.baseUrl)}</p><div class="tag-row">${p.id===config.solveProfileId?'<span class="pill">默认解题</span>':''}${p.id===config.ocrProfileId?'<span class="pill">默认视觉</span>':''}${p.vision?'<span class="pill">支持图像</span>':''}<span class="status ${keyFor(p)?'mastered':'new'}"><i></i>${keyFor(p)?'会话密钥已配置':'未填写密钥'}</span></div><div class="ai-connection-state">${esc(statuses.get(p.id)||'尚未测试连接')}</div><div class="ai-profile-actions"><button class="text-btn" data-ai="test-saved" data-id="${esc(p.id)}">测试连接</button><button class="text-btn" data-ai="default-solve" data-id="${esc(p.id)}">设为解题默认</button><button class="icon-btn danger-text" data-ai="delete" data-id="${esc(p.id)}" aria-label="删除${esc(p.label)}">${icon('trash')}</button></div></section>`).join('')||`<section class="card ai-empty"><div>${icon('spark')}</div><h2>先添加一位解题助教。</h2><p>提供 API 地址、模型名与自己的 API Key，即可开始。<br>只用本地 OCR 时，无需配置模型。</p><button class="btn primary" data-ai="add">添加模型配置 ${icon('arrow')}</button></section>`}</div>`;
   }
   function editor(id=null){
-    editingId=id;modelOptions=[];
+    editingId=id;modelOptions=[];modelRequest++;
     const p=config.profiles.find(p=>p.id===id)||{...AI_PROVIDERS[0],id:uid(),provider:'deepseek',label:'',timeout:90};
-    modal(`<div class="modal-heading"><span class="eyebrow">MODEL CONNECTION</span><h2>${id?'编辑':'添加'}模型配置</h2><p>支持 OpenAI 兼容 Chat Completions 与 Anthropic Messages 协议。可保存多套配置，分别选择解题模型与视觉模型。</p></div><form id="ai-profile-form" data-profile-id="${esc(p.id)}"><div class="form-grid two"><div class="field"><label>服务商</label><select name="provider">${choose(AI_PROVIDERS.map(p=>[p.id,p.name]),p.provider)}</select></div><div class="field"><label>配置名称</label><input name="label" maxlength="80" value="${esc(p.label)}" placeholder="例如：日常解题 / 图片识别"></div></div><div class="field"><label>接口协议</label><select name="protocol">${choose([['openai','OpenAI 兼容 · Chat Completions'],['anthropic','Anthropic · Messages']],p.protocol)}</select></div><div class="field"><label>API Base URL *</label><input name="baseUrl" type="url" required maxlength="500" value="${esc(p.baseUrl)}" placeholder="https://api.example.com/v1"><small>填 API 基础地址，无需追加 /chat/completions。自定义服务需使用公网 HTTPS 地址。</small></div><div class="field"><label>API Key *</label><input name="apiKey" type="password" autocomplete="off" spellcheck="false" maxlength="2000" placeholder="${keyFor(p)?'本会话已有密钥，留空保留':'仅保存在当前标签页会话'}"><small>Key 随本次请求经站点转发到所选接口，服务端不落盘、不回显，不进入源码或错题备份。</small></div><div class="field"><label>模型名称 *</label><div class="ai-model-field"><input name="model" required maxlength="160" value="${esc(p.model)}" list="ai-model-options" placeholder="填写模型 ID，或读取后选择"><button type="button" class="btn small" data-ai="models">读取模型列表</button></div><datalist id="ai-model-options"></datalist><small id="ai-model-hint">模型以你的账户实际可用列表为准，也可以直接输入服务商给出的模型 ID。</small></div><div class="form-grid two"><div class="field"><label>请求超时（秒）</label><input type="number" min="15" max="180" name="timeout" value="${p.timeout}"></div><div class="field ai-vision-field"><label><input name="vision" type="checkbox" ${p.vision?'checked':''}>该模型支持图像输入</label><small>用于视觉 OCR；请按服务商实际模型能力开启。</small></div></div><div id="ai-test-output" class="ai-test-output" aria-live="polite"></div><div class="modal-footer"><button type="button" class="btn" data-ai="test-editor">${icon('refresh')}测试连接</button><span class="flex-space"></span><button type="button" class="btn" data-action="close">取消</button><button type="submit" class="btn primary">保存配置 ${icon('check')}</button></div></form>`,true);
+    modal(`<div class="modal-heading"><span class="eyebrow">MODEL CONNECTION</span><h2>${id?'编辑':'添加'}模型配置</h2><p>支持 OpenAI 兼容 Chat Completions 与 Anthropic Messages 协议。可保存多套配置，分别选择解题模型与视觉模型。</p></div><form id="ai-profile-form" data-profile-id="${esc(p.id)}"><div class="form-grid two"><div class="field"><label>服务商</label><select name="provider">${choose(AI_PROVIDERS.map(p=>[p.id,p.name]),p.provider)}</select></div><div class="field"><label>配置名称</label><input name="label" maxlength="80" value="${esc(p.label)}" placeholder="例如：日常解题 / 图片识别"></div></div><div class="field"><label>接口协议</label><select name="protocol">${choose([['openai','OpenAI 兼容 · Chat Completions'],['anthropic','Anthropic · Messages']],p.protocol)}</select></div><div class="field"><label>API Base URL *</label><input name="baseUrl" type="url" required maxlength="500" value="${esc(p.baseUrl)}" placeholder="https://api.example.com/v1"><small>填 API 基础地址，无需追加 /chat/completions。自定义服务需使用公网 HTTPS 地址。</small></div><div class="field"><label>API Key *</label><input name="apiKey" type="password" autocomplete="off" spellcheck="false" maxlength="2000" placeholder="${keyFor(p)?'本会话已有密钥，留空保留':'仅保存在当前标签页会话'}"><small>Key 随本次请求经站点转发到所选接口，服务端不落盘、不回显，不进入源码或错题备份。</small></div><div class="field"><label for="ai-model-options">可用模型</label><div class="ai-model-field"><select id="ai-model-options" name="modelChoice" disabled><option value="">先读取可用模型列表</option></select><button type="button" class="btn small" data-ai="models">读取模型列表</button></div><small id="ai-model-hint">读取后可在下拉菜单中直接选择；也可以在下方手动填写。</small></div><div class="field"><label for="ai-model-id">模型 ID *</label><input id="ai-model-id" name="model" required maxlength="160" value="${esc(p.model)}" placeholder="从上方选择，或手动填写服务商提供的模型 ID"><small>选择下拉选项后会自动填入；保存时使用此处的模型 ID。</small></div><div class="form-grid two"><div class="field"><label>请求超时（秒）</label><input type="number" min="15" max="180" name="timeout" value="${p.timeout}"></div><div class="field ai-vision-field"><label><input name="vision" type="checkbox" ${p.vision?'checked':''}>该模型支持图像输入</label><small>用于视觉 OCR；请按服务商实际模型能力开启。</small></div></div><div id="ai-test-output" class="ai-test-output" aria-live="polite"></div><div class="modal-footer"><button type="button" class="btn" data-ai="test-editor">${icon('refresh')}测试连接</button><span class="flex-space"></span><button type="button" class="btn" data-action="close">取消</button><button type="submit" class="btn primary">保存配置 ${icon('check')}</button></div></form>`,true);
   }
   function readForm(forModels=false){
     const form=document.querySelector('#ai-profile-form');if(!form)throw new Error('配置窗口已关闭');
@@ -37,17 +37,34 @@ export function createAIWorkspace(deps) {
     if(/[\r\n]/.test(apiKey))throw new Error('API Key 不能包含换行');
     return {profile,apiKey,supplied};
   }
+  function resetModels(){
+    modelOptions=[];modelRequest++;
+    const select=document.querySelector('#ai-model-options');if(select){select.innerHTML='<option value="">先读取可用模型列表</option>';select.disabled=true;}
+    const hint=document.querySelector('#ai-model-hint');if(hint)hint.textContent='配置已变更，请重新读取模型列表，或手动填写模型 ID。';
+    const output=document.querySelector('#ai-test-output');if(output)output.textContent='';
+  }
   async function testEditor(models=false){
-    const output=document.querySelector('#ai-test-output'),form=document.querySelector('#ai-profile-form');
+    const output=document.querySelector('#ai-test-output'),form=document.querySelector('#ai-profile-form'),button=form?.querySelector(`[data-ai="${models?'models':'test-editor'}"]`),epoch=models?++modelRequest:null;
     try{
       const {profile,apiKey}=readForm(models);
       if(job)throw new Error('请先等待或取消正在进行的识别与解题');
+      if(button)button.disabled=true;
       if(output)output.textContent=models?'正在读取模型列表…':'正在测试连接…';
       const response=await requestAI(profile,apiKey,models?'models':'test');
-      if(document.querySelector('#ai-profile-form')!==form)return;
-      if(models){modelOptions=response.models||[];document.querySelector('#ai-model-options').innerHTML=modelOptions.map(name=>`<option value="${esc(name)}"></option>`).join('');document.querySelector('#ai-model-hint').textContent=`已读取 ${modelOptions.length} 个模型；在模型名称框中输入或选择。`;if(!document.querySelector('[name="model"]').value&&modelOptions[0])document.querySelector('[name="model"]').value=modelOptions[0];}
-      if(output?.isConnected)output.textContent=models?`模型列表读取完成，共 ${modelOptions.length} 个。`:'连接成功。保存配置后即可使用。';
+      if(document.querySelector('#ai-profile-form')!==form||models&&epoch!==modelRequest)return;
+      if(models){
+        const latest=readForm(true);
+        if(latest.profile.baseUrl!==profile.baseUrl||latest.profile.protocol!==profile.protocol||latest.apiKey!==apiKey){resetModels();return;}
+        modelOptions=[...new Set((Array.isArray(response.models)?response.models:[]).filter(name=>typeof name==='string'&&name.trim()).map(name=>name.trim()))];
+        if(!modelOptions.length){resetModels();throw new Error('未返回可选择的模型，请核对接口和权限，或手动填写模型 ID');}
+        const select=form.querySelector('#ai-model-options'),model=form.elements.model;
+        select.innerHTML='<option value="">请选择模型</option>'+modelOptions.map(name=>`<option value="${esc(name)}">${esc(name)}</option>`).join('');select.disabled=false;
+        if(!model.value)model.value=modelOptions[0];select.value=modelOptions.includes(model.value)?model.value:'';
+        form.querySelector('#ai-model-hint').textContent=`已读取 ${modelOptions.length} 个模型，请点击下拉菜单选择。`;
+      }
+      if(output?.isConnected)output.textContent=models?`已读取 ${modelOptions.length} 个模型，可在上方下拉菜单中选择。`:'连接成功。保存配置后即可使用。';
     }catch(e){if(output?.isConnected)output.textContent=e.message;else toast(e.message,'error');}
+    finally{if(button?.isConnected)button.disabled=false;}
   }
   function saveProfile(event){
     event.preventDefault();
@@ -164,9 +181,12 @@ export function createAIWorkspace(deps) {
   });
   document.addEventListener('change',event=>{
     const el=event.target;
+    if(el.id==='ai-model-options'){if(el.value)el.form.elements.model.value=el.value;return;}
+    if(el.name==='protocol'&&el.closest('#ai-profile-form'))resetModels();
     if(el.dataset.aiSetting){config[el.dataset.aiSetting]=el.type==='checkbox'?el.checked:el.value;persistConfig();render();}
-    if(el.name==='provider'&&el.closest('#ai-profile-form')){const p=AI_PROVIDERS.find(p=>p.id===el.value);const form=el.form;form.elements.protocol.value=p.protocol;form.elements.baseUrl.value=p.baseUrl;form.elements.model.value=p.model;form.elements.vision.checked=p.vision;form.elements.apiKey.value='';form.elements.apiKey.placeholder='请填写该服务商的 API Key';document.querySelector('#ai-model-options').innerHTML='';document.querySelector('#ai-test-output').textContent='';}
+    if(el.name==='provider'&&el.closest('#ai-profile-form')){const p=AI_PROVIDERS.find(p=>p.id===el.value);const form=el.form;form.elements.protocol.value=p.protocol;form.elements.baseUrl.value=p.baseUrl;form.elements.model.value=p.model;form.elements.vision.checked=p.vision;form.elements.apiKey.value='';form.elements.apiKey.placeholder='请填写该服务商的 API Key';resetModels();}
   });
+  document.addEventListener('input',event=>{const el=event.target;if(!el.closest('#ai-profile-form'))return;if(['baseUrl','apiKey'].includes(el.name))resetModels();if(el.name==='model'){const select=el.form.querySelector('#ai-model-options');select.value=modelOptions.includes(el.value)?el.value:'';}});
   document.addEventListener('submit',event=>{if(event.target.id==='ai-profile-form')saveProfile(event);if(event.target.id==='ai-result-form')applyResult(event);});
   return {page,toolbar,startSolve,startOcr,isBusy:()=>!!job,cancel,onPhotoUploaded:()=>{cancel();if(config.autoOcr)void startOcr(config.autoSolve);},sourceBadge:r=>r.aiSource?`<div class="ai-source-badge">${icon('spark')}答案与解析来自 ${esc(r.aiSource.model)} · ${r.aiSource.reviewed?'已核对采用':'自动生成，待核对'}</div>`:''};
 }

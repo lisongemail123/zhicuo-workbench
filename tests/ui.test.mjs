@@ -53,11 +53,42 @@ test('model settings save profiles separately from keys and discover models befo
  const app=await setup({configured:false,providerFetch:async(url)=>url.endsWith('/models')?upstream({data:[{id:'vision-test'},{id:'text-test'}]}):solution()});
  try{
   app.qa.go('ai');app.click('[data-ai="add"]');app.change('[name="provider"]','custom');app.fill('[name="baseUrl"]',base.baseUrl);app.fill('[name="apiKey"]',fakeKey);app.fill('[name="label"]','自己的视觉模型');app.change('[name="vision"]',true);
-  app.click('[data-ai="models"]');await until(()=>app.doc.querySelector('#ai-model-options')?.children.length===2);assert.equal(app.doc.querySelector('[name="model"]').value,'vision-test');
-  app.submit('#ai-profile-form');const config=JSON.parse(app.w.localStorage.getItem(app.key(AI_CONFIG_KEY)));assert.equal(config.profiles.length,1);assert.ok(!JSON.stringify(config).includes(fakeKey));assert.ok(app.w.sessionStorage.getItem(app.key(AI_SESSION_KEY)).includes(fakeKey));assert.ok(!app.w.localStorage.getItem(app.qa.storageKey).includes(fakeKey));
+  app.click('[data-ai="models"]');await until(()=>app.doc.querySelector('#ai-model-options')?.options.length===3);assert.equal(app.doc.querySelector('[name="model"]').value,'vision-test');assert.equal(app.doc.querySelector('#ai-model-options').tagName,'SELECT');assert.equal(app.doc.querySelector('#ai-model-options').disabled,false);app.change('#ai-model-options','text-test');assert.equal(app.doc.querySelector('[name="model"]').value,'text-test');
+  app.submit('#ai-profile-form');const config=JSON.parse(app.w.localStorage.getItem(app.key(AI_CONFIG_KEY)));assert.equal(config.profiles.length,1);assert.equal(config.profiles[0].model,'text-test');assert.ok(!JSON.stringify(config).includes(fakeKey));assert.ok(app.w.sessionStorage.getItem(app.key(AI_SESSION_KEY)).includes(fakeKey));assert.ok(!app.w.localStorage.getItem(app.qa.storageKey).includes(fakeKey));
   app.change('[data-ai-setting="ocrEngine"]','vision');assert.ok(app.doc.querySelector('[data-ai-setting="ocrProfileId"]'));
   app.click('[data-ai="test-saved"]');await until(()=>app.doc.querySelector('.ai-connection-state')?.textContent==='连接成功');
   app.click('[data-ai="clear-keys"]');assert.equal(app.w.sessionStorage.getItem(app.key(AI_SESSION_KEY)),'{}');assert.match(app.doc.querySelector('.ai-profile').textContent,/未填写密钥/);assert.deepEqual(app.errors,[]);
+ }finally{app.close();}
+});
+test('saved model discovery shows every option even when its current model is not returned, and keeps manual entry available',async()=>{
+ const app=await setup({providerFetch:async()=>upstream({models:[{name:'model-a'},{model:'model-b'}]})});try{
+  app.qa.go('ai');app.click('[data-ai="edit"]');app.click('[data-ai="models"]');await until(()=>!app.doc.querySelector('#ai-model-options').disabled);
+  assert.equal(app.doc.querySelector('[name="model"]').value,base.model);assert.deepEqual([...app.doc.querySelector('#ai-model-options').options].map(o=>o.value),['','model-a','model-b']);
+  app.change('#ai-model-options','model-b');assert.equal(app.doc.querySelector('[name="model"]').value,'model-b');app.fill('[name="model"]','custom-private-model');assert.equal(app.doc.querySelector('#ai-model-options').value,'');app.submit('#ai-profile-form');
+  assert.equal(JSON.parse(app.w.localStorage.getItem(app.key(AI_CONFIG_KEY))).profiles[0].model,'custom-private-model');assert.deepEqual(app.errors,[]);
+ }finally{app.close();}
+});
+test('an empty model response reports a useful error and allows retrying into a real native select',async()=>{
+ let calls=0;const app=await setup({providerFetch:async()=>upstream(++calls===1?{data:[]}:{data:[{id:'retry-model'}]})});try{
+  app.qa.go('ai');app.click('[data-ai="edit"]');app.click('[data-ai="models"]');await until(()=>app.doc.querySelector('#ai-test-output').textContent.includes('未返回'));
+  assert.equal(app.doc.querySelector('#ai-model-options').disabled,true);assert.ok(!app.doc.querySelector('#ai-test-output').textContent.includes('读取完成'));assert.equal(app.doc.querySelector('[data-ai="models"]').disabled,false);
+  app.click('[data-ai="models"]');await until(()=>!app.doc.querySelector('#ai-model-options').disabled);assert.equal(app.doc.querySelector('#ai-model-options').options[1].value,'retry-model');assert.deepEqual(app.errors,[]);
+ }finally{app.close();}
+});
+test('model results from an earlier endpoint cannot populate the selector after configuration changes',async()=>{
+ let release;const app=await setup({providerFetch:()=>new Promise(resolve=>{release=resolve;})});try{
+  app.qa.go('ai');app.click('[data-ai="edit"]');app.click('[data-ai="models"]');await until(()=>release);app.fill('[name="baseUrl"]','https://other.example.com/v1');release(upstream({data:[{id:'stale-model'}]}));await until(()=>!app.doc.querySelector('[data-ai="models"]').disabled);
+  assert.equal(app.doc.querySelector('#ai-model-options').disabled,true);assert.ok(!app.doc.querySelector('#ai-model-options').textContent.includes('stale-model'));assert.deepEqual(app.errors,[]);
+ }finally{app.close();}
+});
+test('stored raw math renders in details, review, live edits and printed answers while preserving editable data',async()=>{
+ const initial=createInitialState(true),formula=String.raw`BE'=\sqrt{4-\sqrt7}=\frac{\sqrt{14}-\sqrt2}{2}`;initial.records[0].analysis='所以 '+formula+'。';initial.records[0].answer=formula;
+ const app=await setup({configured:false,initialState:initial});try{
+  app.qa.openRecord(initial.records[0].id);assert.ok(app.doc.querySelector('#dialog mfrac'));assert.equal(app.qa.state.records[0].analysis,initial.records[0].analysis);
+  app.click('#dialog [data-study]');app.click('[data-action="reveal"]');assert.ok(app.doc.querySelector('.revealed-answer mfrac'));
+  app.qa.go('print');await until(()=>app.doc.querySelector('#paper-pages .a4'));assert.ok(app.doc.querySelector('#paper-pages mfrac'));
+  app.qa.openRecord(initial.records[0].id);app.click('#dialog [data-edit]');assert.equal(app.qa.draft.analysis,initial.records[0].analysis);
+  app.qa.go('intake');app.fill('#draft-content','求长度 '+formula+'。');assert.ok(app.doc.querySelector('.math-edit-preview mfrac'));assert.equal(app.qa.draft.content,'求长度 '+formula+'。');assert.deepEqual(app.errors,[]);
  }finally{app.close();}
 });
 test('OCR and solution preview apply only after adoption and persist provenance without changing mastery',async()=>{

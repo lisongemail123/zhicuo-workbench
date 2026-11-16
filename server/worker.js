@@ -9,6 +9,7 @@ export default {
     let path;try{path=decodeURIComponent(url.pathname);}catch{return new Response('Bad request',{status:400});}
     const asset=assets[path==='/'?'/index.html':path];
     if(!asset)return new Response('Not found',{status:404});
-    return new Response(request.method==='HEAD'?null:asset.content,{headers:{'Content-Type':asset.type,'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin'}});
+    const body=asset.encoding==='base64'?Uint8Array.from(atob(asset.content),c=>c.charCodeAt(0)):asset.content;
+    return new Response(request.method==='HEAD'?null:body,{headers:{'Content-Type':asset.type,'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin'}});
   }
 };

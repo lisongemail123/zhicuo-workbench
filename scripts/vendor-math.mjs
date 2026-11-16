@@ -1,0 +1,12 @@
+import { build } from 'esbuild';
+import { mkdir,readFile,writeFile,readdir,copyFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+const root=fileURLToPath(new URL('../',import.meta.url)),source=path.join(root,'node_modules/katex'),dest=path.join(root,'dist/vendor/katex');
+await mkdir(path.join(dest,'fonts'),{recursive:true});
+await build({entryPoints:[path.join(source,'dist/katex.mjs')],outfile:path.join(dest,'katex.mjs'),bundle:true,minify:true,format:'esm',platform:'browser',target:'es2022',legalComments:'inline'});
+const css=(await readFile(path.join(source,'dist/katex.min.css'),'utf8')).replace(/,url\([^)]*\.(?:woff|ttf)\) format\("[^"]+"\)/g,'');
+await writeFile(path.join(dest,'katex.min.css'),css);
+for(const name of await readdir(path.join(source,'dist/fonts')))if(name.endsWith('.woff2'))await copyFile(path.join(source,'dist/fonts',name),path.join(dest,'fonts',name));
+await copyFile(path.join(source,'LICENSE'),path.join(dest,'LICENSE'));
+console.log('Vendored KaTeX, its stylesheet, WOFF2 fonts and license.');

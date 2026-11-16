@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { routeAPI } from './router.js';
 import { createLocalCloud } from './local-cloud.mjs';
 const root=fileURLToPath(new URL('../dist/',import.meta.url));
-const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.md':'text/plain; charset=utf-8'};
+const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.md':'text/plain; charset=utf-8','.woff2':'font/woff2'};
 export function createAppServer({cloudEnv=createLocalCloud()}={}) {
   return http.createServer(async(req,res)=>{
     try{

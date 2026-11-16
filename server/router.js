@@ -6,7 +6,7 @@ import { cloudReady } from './cloud-store.js';
 import { resolveUser,assertSameOrigin,json } from './accounts.js';
 export async function routeAPI(request,env){
  const path=new URL(request.url).pathname;
- if(path==='/api/health')return json({ok:true,version:'4.0.0',ai:true,cloud:cloudReady(env),chatgpt:true,accounts:true});
+ if(path==='/api/health')return json({ok:true,version:'4.0.1',ai:true,cloud:cloudReady(env),chatgpt:true,accounts:true});
  if(path==='/mcp')return handleMCP(request,env);
  if(/^\/api\/(auth|workspaces|admin)(\/|$)/.test(path))return handleAccountRequest(request,env);
  if(path.startsWith('/api/cloud/')||path.startsWith('/api/files/'))return handleCloudRequest(request,env);
